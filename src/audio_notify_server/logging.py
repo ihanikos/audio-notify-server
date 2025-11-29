@@ -74,7 +74,10 @@ def setup_logging(
                 rotation=rotation,
                 retention=retention,
                 compression="gz",
-                format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}",
+                format=(
+                    "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
+                    "{name}:{function}:{line} | {message}"
+                ),
             )
 
 

@@ -1,0 +1,218 @@
+"""Command-line interface for audio-notify-server."""
+
+import argparse
+import socket
+import sys
+
+
+def get_interface_ip(interface_name: str) -> str | None:
+    """
+    Get the IP address of a network interface.
+
+    Args:
+        interface_name: Name of the interface (e.g., 'tun0', 'wg0', 'eth0')
+
+    Returns:
+        IP address string or None if not found.
+    """
+    try:
+        import fcntl
+        import struct
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        ip_addr = socket.inet_ntoa(
+            fcntl.ioctl(
+                sock.fileno(),
+                0x8915,  # SIOCGIFADDR
+                struct.pack("256s", interface_name.encode()[:15]),
+            )[20:24]
+        )
+        return ip_addr
+    except (OSError, IOError):
+        return None
+
+
+def list_interfaces() -> list[tuple[str, str]]:
+    """
+    List available network interfaces and their IPs.
+
+    Returns:
+        List of (interface_name, ip_address) tuples.
+    """
+    interfaces = []
+    try:
+        import array
+        import fcntl
+        import struct
+
+        # Get list of interfaces
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        max_interfaces = 128
+        bytes_needed = max_interfaces * 40
+        names = array.array("B", b"\0" * bytes_needed)
+        outbytes = struct.unpack(
+            "iL",
+            fcntl.ioctl(
+                sock.fileno(),
+                0x8912,  # SIOCGIFCONF
+                struct.pack("iL", bytes_needed, names.buffer_info()[0]),
+            ),
+        )[0]
+
+        namestr = names.tobytes()
+        for i in range(0, outbytes, 40):
+            name = namestr[i : i + 16].split(b"\0", 1)[0].decode()
+            ip = socket.inet_ntoa(namestr[i + 20 : i + 24])
+            interfaces.append((name, ip))
+    except (OSError, IOError):
+        # Fallback: just return localhost
+        interfaces.append(("lo", "127.0.0.1"))
+
+    return interfaces
+
+
+def find_interface_by_prefix(prefix: str) -> tuple[str, str] | None:
+    """
+    Find the first interface matching a prefix.
+
+    Args:
+        prefix: Interface name prefix (e.g., 'zt', 'tun', 'wg')
+
+    Returns:
+        Tuple of (interface_name, ip_address) or None if not found.
+    """
+    for name, ip in list_interfaces():
+        if name.startswith(prefix):
+            return (name, ip)
+    return None
+
+
+def main():
+    """Main entry point for the CLI."""
+    parser = argparse.ArgumentParser(
+        prog="audio-notify-server",
+        description="Local audio notification server for remote task completion alerts",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Start on localhost (default, safest)
+  audio-notify-server
+
+  # Bind to ZeroTier (auto-detect zt* interface)
+  audio-notify-server --interface-prefix zt
+
+  # Bind to a specific VPN interface
+  audio-notify-server --interface tun0
+  audio-notify-server --interface wg0
+
+  # Bind to a specific IP
+  audio-notify-server --host 10.8.0.2
+
+  # Use custom port
+  audio-notify-server --port 51516
+
+  # List available interfaces
+  audio-notify-server --list-interfaces
+
+Sending notifications (from remote server):
+  # Simple notification (sound only)
+  curl -X POST http://10.8.0.2:51515/notify
+
+  # With message (spoken via TTS)
+  curl -X POST http://10.8.0.2:51515/notify \\
+       -H "Content-Type: application/json" \\
+       -d '{"message": "Build complete!", "speak": true}'
+
+  # GET request (for simpler scripting)
+  curl "http://10.8.0.2:51515/notify?message=Done&speak=true"
+        """,
+    )
+
+    parser.add_argument(
+        "--host",
+        "-H",
+        default="127.0.0.1",
+        help="IP address to bind to (default: 127.0.0.1). Use with caution!",
+    )
+    parser.add_argument(
+        "--port",
+        "-p",
+        type=int,
+        default=51515,
+        help="Port to listen on (default: 51515)",
+    )
+    parser.add_argument(
+        "--interface",
+        "-i",
+        help="Network interface to bind to (e.g., tun0, wg0). Overrides --host.",
+    )
+    parser.add_argument(
+        "--interface-prefix",
+        "-P",
+        help="Bind to first interface matching prefix (e.g., 'zt' for ZeroTier). Overrides --host.",
+    )
+    parser.add_argument(
+        "--sound",
+        "-s",
+        help="Path to custom notification sound file",
+    )
+    parser.add_argument(
+        "--debug",
+        "-d",
+        action="store_true",
+        help="Enable debug mode",
+    )
+    parser.add_argument(
+        "--list-interfaces",
+        "-l",
+        action="store_true",
+        help="List available network interfaces and exit",
+    )
+
+    args = parser.parse_args()
+
+    if args.list_interfaces:
+        print("Available interfaces:")
+        for name, ip in list_interfaces():
+            print(f"  {name}: {ip}")
+        sys.exit(0)
+
+    host = args.host
+
+    # Interface prefix takes precedence (for ZeroTier with dynamic names)
+    if args.interface_prefix:
+        result = find_interface_by_prefix(args.interface_prefix)
+        if result is None:
+            print(
+                f"Error: No interface found with prefix '{args.interface_prefix}'",
+                file=sys.stderr,
+            )
+            print("Use --list-interfaces to see available interfaces", file=sys.stderr)
+            sys.exit(1)
+        interface_name, host = result
+        print(f"Binding to interface {interface_name} ({host})")
+    elif args.interface:
+        interface_ip = get_interface_ip(args.interface)
+        if interface_ip is None:
+            print(f"Error: Could not find interface '{args.interface}'", file=sys.stderr)
+            print("Use --list-interfaces to see available interfaces", file=sys.stderr)
+            sys.exit(1)
+        host = interface_ip
+        print(f"Binding to interface {args.interface} ({host})")
+
+    # Security warning for non-localhost binding
+    if host != "127.0.0.1" and host != "::1":
+        print(f"Warning: Binding to {host} - ensure this is a trusted network!", file=sys.stderr)
+
+    from .server import run_server
+
+    run_server(
+        host=host,
+        port=args.port,
+        sound_file=args.sound,
+        debug=args.debug,
+    )
+
+
+if __name__ == "__main__":
+    main()

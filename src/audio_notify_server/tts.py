@@ -1,7 +1,7 @@
 """Text-to-speech functionality."""
 
-import subprocess
 import shutil
+import subprocess
 
 
 def speak(message: str) -> bool:
