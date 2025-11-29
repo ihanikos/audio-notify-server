@@ -8,19 +8,25 @@ import fcntl
 import socket
 import struct
 import sys
+from typing import TYPE_CHECKING
+
+from loguru import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 from .server import run_server
 
 
 def get_interface_ip(interface_name: str) -> str | None:
-    """
-    Get the IP address of a network interface.
+    """Return the IP address of a network interface.
 
     Args:
-        interface_name: Name of the interface (e.g., 'tun0', 'wg0', 'eth0')
+        interface_name: Name of the interface (e.g., 'tun0', 'wg0', 'eth0').
 
     Returns:
         IP address string or None if not found.
+
     """
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -29,7 +35,7 @@ def get_interface_ip(interface_name: str) -> str | None:
                 sock.fileno(),
                 0x8915,  # SIOCGIFADDR
                 struct.pack("256s", interface_name.encode()[:15]),
-            )[20:24]
+            )[20:24],
         )
     except OSError:
         return None
@@ -38,11 +44,11 @@ def get_interface_ip(interface_name: str) -> str | None:
 
 
 def list_interfaces() -> list[tuple[str, str]]:
-    """
-    List available network interfaces and their IPs.
+    """Return available network interfaces and their IPs.
 
     Returns:
         List of (interface_name, ip_address) tuples.
+
     """
     try:
         # Get list of interfaces
@@ -73,14 +79,14 @@ def list_interfaces() -> list[tuple[str, str]]:
 
 
 def find_interface_by_prefix(prefix: str) -> tuple[str, str] | None:
-    """
-    Find the first interface matching a prefix.
+    """Find the first interface matching a prefix.
 
     Args:
-        prefix: Interface name prefix (e.g., 'zt', 'tun', 'wg')
+        prefix: Interface name prefix (e.g., 'zt', 'tun', 'wg').
 
     Returns:
         Tuple of (interface_name, ip_address) or None if not found.
+
     """
     for name, ip in list_interfaces():
         if name.startswith(prefix):
@@ -88,8 +94,13 @@ def find_interface_by_prefix(prefix: str) -> tuple[str, str] | None:
     return None
 
 
-def main():
-    """Main entry point for the CLI."""
+def main(argv: Sequence[str] | None = None) -> None:
+    """Run the CLI application.
+
+    Args:
+        argv: Command line arguments (default: sys.argv[1:]).
+
+    """
     parser = argparse.ArgumentParser(
         prog="audio-notify-server",
         description="Local audio notification server for remote task completion alerts",
@@ -150,7 +161,7 @@ Sending notifications (from remote server):
     parser.add_argument(
         "--interface-prefix",
         "-P",
-        help="Bind to first interface matching prefix (e.g., 'zt' for ZeroTier). Overrides --host.",
+        help="Bind to first interface matching prefix (e.g., 'zt' for ZeroTier).",
     )
     parser.add_argument(
         "--sound",
@@ -170,12 +181,12 @@ Sending notifications (from remote server):
         help="List available network interfaces and exit",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.list_interfaces:
-        print("Available interfaces:")  # noqa: T201
+        logger.info("Available interfaces:")
         for name, ip in list_interfaces():
-            print(f"  {name}: {ip}")  # noqa: T201
+            logger.info("  {}: {}", name, ip)
         sys.exit(0)
 
     host = args.host
@@ -184,27 +195,24 @@ Sending notifications (from remote server):
     if args.interface_prefix:
         result = find_interface_by_prefix(args.interface_prefix)
         if result is None:
-            print(  # noqa: T201
-                f"Error: No interface found with prefix '{args.interface_prefix}'",
-                file=sys.stderr,
-            )
-            print("Use --list-interfaces to see available interfaces", file=sys.stderr)  # noqa: T201
+            logger.error("No interface found with prefix '{}'", args.interface_prefix)
+            logger.info("Use --list-interfaces to see available interfaces")
             sys.exit(1)
         interface_name, interface_ip = result
         host = interface_ip
-        print(f"Binding to interface {interface_name} ({host})")  # noqa: T201
+        logger.info("Binding to interface {} ({})", interface_name, host)
     elif args.interface:
         interface_ip = get_interface_ip(args.interface)
         if interface_ip is None:
-            print(f"Error: Could not find interface '{args.interface}'", file=sys.stderr)  # noqa: T201
-            print("Use --list-interfaces to see available interfaces", file=sys.stderr)  # noqa: T201
+            logger.error("Could not find interface '{}'", args.interface)
+            logger.info("Use --list-interfaces to see available interfaces")
             sys.exit(1)
         host = interface_ip
-        print(f"Binding to interface {args.interface} ({host})")  # noqa: T201
+        logger.info("Binding to interface {} ({})", args.interface, host)
 
     # Security warning for non-localhost binding
     if host not in {"127.0.0.1", "::1"}:
-        print(f"Warning: Binding to {host} - ensure this is a trusted network!", file=sys.stderr)  # noqa: T201
+        logger.warning("Binding to {} - ensure this is a trusted network!", host)
 
     run_server(
         host=host,

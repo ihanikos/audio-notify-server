@@ -7,6 +7,7 @@ rather than the repository root.
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from loguru import logger
@@ -19,32 +20,33 @@ DEFAULT_LOG_DIR = Path.home() / ".local" / "state" / "audio-notify-server"
 logger.remove()
 
 
-def setup_logging(  # noqa: PLR0913
-    log_dir: Path | str | None = None,
-    level: str = "INFO",
-    rotation: str = "10 MB",
-    retention: str = "7 days",
-    *,
-    json_logs: bool = False,
-    console: bool = True,
-) -> None:
-    """
-    Configure logging with rotation and optional JSON output.
+@dataclass
+class LogConfig:
+    """Configuration for logging setup."""
+
+    log_dir: Path | str | None = None
+    level: str = "INFO"
+    rotation: str = "10 MB"
+    retention: str = "7 days"
+    json_logs: bool = False
+    console: bool = True
+
+
+def setup_logging(config: LogConfig | None = None) -> None:
+    """Configure logging with rotation and optional JSON output.
 
     Args:
-        log_dir: Directory for log files. Defaults to ~/.local/state/audio-notify-server/
-                 Set to None to disable file logging.
-        level: Minimum log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        rotation: When to rotate logs (e.g., "10 MB", "1 day", "00:00")
-        retention: How long to keep old logs (e.g., "7 days", "1 month", 10)
-        json_logs: If True, write JSON-formatted logs to file
-        console: If True, also log to stderr with colors
+        config: Logging configuration. Uses defaults if None.
+
     """
+    if config is None:
+        config = LogConfig()
+
     # Console handler (stderr with colors)
-    if console:
+    if config.console:
         logger.add(
             sys.stderr,
-            level=level,
+            level=config.level,
             format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
             "<level>{level: <8}</level> | "
             "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
@@ -53,19 +55,20 @@ def setup_logging(  # noqa: PLR0913
         )
 
     # File handler with rotation
-    if log_dir is not None:
+    if config.log_dir is not None:
+        log_dir = config.log_dir
         log_path = Path(log_dir) if isinstance(log_dir, str) else log_dir
         log_path.mkdir(parents=True, exist_ok=True)
 
         log_file = log_path / "audio-notify-server.log"
 
-        if json_logs:
+        if config.json_logs:
             # JSON format for structured logging / log aggregation
             logger.add(
                 log_file,
-                level=level,
-                rotation=rotation,
-                retention=retention,
+                level=config.level,
+                rotation=config.rotation,
+                retention=config.retention,
                 compression="gz",
                 serialize=True,  # JSON output
             )
@@ -73,9 +76,9 @@ def setup_logging(  # noqa: PLR0913
             # Plain text format
             logger.add(
                 log_file,
-                level=level,
-                rotation=rotation,
-                retention=retention,
+                level=config.level,
+                rotation=config.rotation,
+                retention=config.retention,
                 compression="gz",
                 format=(
                     "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
@@ -84,6 +87,14 @@ def setup_logging(  # noqa: PLR0913
             )
 
 
-def get_logger(name: str = "audio_notify_server"):
-    """Get a logger instance bound with the given name."""
+def get_logger(name: str = "audio_notify_server") -> logger:
+    """Get a logger instance bound with the given name.
+
+    Args:
+        name: The name to bind to the logger instance.
+
+    Returns:
+        A loguru logger instance bound with the given name.
+
+    """
     return logger.bind(name=name)

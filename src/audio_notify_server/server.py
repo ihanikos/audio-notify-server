@@ -4,16 +4,20 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import uvicorn
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from .logging import DEFAULT_LOG_DIR, setup_logging
+from .config import get_max_message_length
+from .logging import DEFAULT_LOG_DIR, LogConfig, setup_logging
 from .sound import play_sound
 from .tts import speak
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 class NotifyRequest(BaseModel):
@@ -46,7 +50,7 @@ class HealthResponse(BaseModel):
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan handler."""
     logger.info("Audio notify server starting up")
     yield
@@ -54,14 +58,14 @@ async def lifespan(_app: FastAPI):
 
 
 def create_app(sound_file: str | None = None) -> FastAPI:
-    """
-    Create and configure the FastAPI application.
+    """Create and configure the FastAPI application.
 
     Args:
         sound_file: Optional path to custom notification sound.
 
     Returns:
         Configured FastAPI application.
+
     """
     app = FastAPI(
         title="Audio Notify Server",
@@ -90,6 +94,15 @@ def create_app(sound_file: str | None = None) -> FastAPI:
         description="Trigger a notification with optional sound and TTS.",
     )
     async def notify_post(body: NotifyRequest, request: Request) -> NotifyResponse:
+        max_length = get_max_message_length()
+        if len(body.message) > max_length:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Message too long ({len(body.message)} characters). "
+                f"Maximum allowed length is {max_length} characters. "
+                "Please summarize your message.",
+            )
+
         client_ip = request.client.host if request.client else "unknown"
         actions: list[ActionResult] = []
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -133,11 +146,21 @@ def create_app(sound_file: str | None = None) -> FastAPI:
     async def notify_get(
         request: Request,
         message: Annotated[str, Query(description="Message to speak via TTS")] = "",
-        sound: Annotated[bool, Query(description="Whether to play notification sound")] = True,  # noqa: FBT002
-        speak_msg: Annotated[  # noqa: FBT002
-            bool, Query(alias="speak", description="Whether to speak the message via TTS")
+        *,
+        sound: Annotated[bool, Query(description="Whether to play notification sound")] = True,
+        speak_msg: Annotated[
+            bool, Query(alias="speak", description="Whether to speak the message via TTS"),
         ] = False,
     ) -> NotifyResponse:
+        max_length = get_max_message_length()
+        if len(message) > max_length:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Message too long ({len(message)} characters). "
+                f"Maximum allowed length is {max_length} characters. "
+                "Please summarize your message.",
+            )
+
         client_ip = request.client.host if request.client else "unknown"
         actions: list[ActionResult] = []
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -179,23 +202,25 @@ def run_server(
     host: str = "127.0.0.1",
     port: int = 51515,
     sound_file: str | None = None,
-    debug: bool = False,  # noqa: FBT001, FBT002
+    *,
+    debug: bool = False,
 ) -> None:
-    """
-    Run the notification server.
+    """Run the notification server.
 
     Args:
         host: Interface to bind to (default: 127.0.0.1 for security)
         port: Port to listen on (default: 51515)
         sound_file: Optional path to custom notification sound
         debug: Enable debug mode
+
     """
     # Configure logging
-    setup_logging(
+    log_config = LogConfig(
         log_dir=DEFAULT_LOG_DIR,
         level="DEBUG" if debug else "INFO",
         json_logs=False,  # Plain text for readability; set True for log aggregation
     )
+    setup_logging(log_config)
 
     logger.info("Starting notification server on {}:{}", host, port)
 

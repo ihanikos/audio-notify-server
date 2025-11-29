@@ -5,14 +5,14 @@ import subprocess
 
 
 def speak(message: str) -> bool:
-    """
-    Speak a message using text-to-speech.
+    """Speak a message using text-to-speech.
 
     Args:
         message: The message to speak.
 
     Returns:
         True if TTS was successful, False otherwise.
+
     """
     if not message:
         return False

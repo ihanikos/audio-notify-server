@@ -28,14 +28,14 @@ def get_default_sound() -> Path | None:
 
 
 def play_sound(sound_path: str | Path | None = None) -> bool:
-    """
-    Play a notification sound.
+    """Play a notification sound.
 
     Args:
         sound_path: Path to sound file. If None, uses system default.
 
     Returns:
         True if sound was played successfully, False otherwise.
+
     """
     if sound_path is None:
         sound_path = get_default_sound()
