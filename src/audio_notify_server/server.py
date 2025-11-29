@@ -1,0 +1,206 @@
+"""Notification server implementation using FastAPI."""
+
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Annotated
+
+from fastapi import FastAPI, Query, Request
+from loguru import logger
+from pydantic import BaseModel, Field
+
+from .sound import play_sound
+from .tts import speak
+
+# Global config (set by create_app)
+_sound_file: str | None = None
+
+
+class NotifyRequest(BaseModel):
+    """Request body for POST /notify."""
+
+    message: str = Field(default="", description="Message to speak via TTS")
+    sound: bool = Field(default=True, description="Whether to play notification sound")
+    speak: bool = Field(default=False, description="Whether to speak the message via TTS")
+
+
+class ActionResult(BaseModel):
+    """Result of a single notification action."""
+
+    type: str = Field(description="Type of action: 'sound' or 'tts'")
+    success: bool = Field(description="Whether the action succeeded")
+    message: str | None = Field(default=None, description="The message that was spoken (for TTS)")
+
+
+class NotifyResponse(BaseModel):
+    """Response from /notify endpoint."""
+
+    success: bool = Field(description="Overall success status")
+    actions: list[ActionResult] = Field(description="List of actions performed")
+
+
+class HealthResponse(BaseModel):
+    """Response from /health endpoint."""
+
+    status: str = Field(description="Health status")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler."""
+    logger.info("Audio notify server starting up")
+    yield
+    logger.info("Audio notify server shutting down")
+
+
+def create_app(sound_file: str | None = None) -> FastAPI:
+    """
+    Create and configure the FastAPI application.
+
+    Args:
+        sound_file: Optional path to custom notification sound.
+
+    Returns:
+        Configured FastAPI application.
+    """
+    global _sound_file
+    _sound_file = sound_file
+
+    app = FastAPI(
+        title="Audio Notify Server",
+        description="A lightweight local notification server for remote task completion alerts. "
+        "Plays sounds and optionally speaks messages via TTS.",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
+
+    @app.get(
+        "/health",
+        response_model=HealthResponse,
+        summary="Health check",
+        description="Check if the server is running.",
+    )
+    async def health() -> HealthResponse:
+        return HealthResponse(status="ok")
+
+    @app.post(
+        "/notify",
+        response_model=NotifyResponse,
+        summary="Send notification",
+        description="Trigger a notification with optional sound and TTS.",
+    )
+    async def notify_post(body: NotifyRequest, request: Request) -> NotifyResponse:
+        client_ip = request.client.host if request.client else "unknown"
+        actions: list[ActionResult] = []
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        # Log the notification request
+        logger.info(
+            "Notification received",
+            client_ip=client_ip,
+            message=body.message or "(none)",
+            sound=body.sound,
+            speak=body.speak,
+            timestamp=timestamp,
+        )
+
+        if body.sound:
+            sound_played = play_sound(_sound_file)
+            actions.append(ActionResult(type="sound", success=sound_played))
+            logger.debug("Sound playback", success=sound_played)
+
+        if body.speak and body.message:
+            spoken = speak(body.message)
+            actions.append(ActionResult(type="tts", success=spoken, message=body.message))
+            logger.debug("TTS playback", success=spoken, message=body.message)
+
+        # Log notification result
+        logger.info(
+            "Notification completed",
+            client_ip=client_ip,
+            actions_count=len(actions),
+            all_success=all(a.success for a in actions),
+        )
+
+        return NotifyResponse(success=True, actions=actions)
+
+    @app.get(
+        "/notify",
+        response_model=NotifyResponse,
+        summary="Send notification (GET)",
+        description="Trigger a notification via GET request with query parameters.",
+    )
+    async def notify_get(
+        request: Request,
+        message: Annotated[str, Query(description="Message to speak via TTS")] = "",
+        sound: Annotated[bool, Query(description="Whether to play notification sound")] = True,
+        speak_msg: Annotated[
+            bool, Query(alias="speak", description="Whether to speak the message via TTS")
+        ] = False,
+    ) -> NotifyResponse:
+        client_ip = request.client.host if request.client else "unknown"
+        actions: list[ActionResult] = []
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        # Log the notification request
+        logger.info(
+            "Notification received (GET)",
+            client_ip=client_ip,
+            message=message or "(none)",
+            sound=sound,
+            speak=speak_msg,
+            timestamp=timestamp,
+        )
+
+        if sound:
+            sound_played = play_sound(_sound_file)
+            actions.append(ActionResult(type="sound", success=sound_played))
+            logger.debug("Sound playback", success=sound_played)
+
+        if speak_msg and message:
+            spoken = speak(message)
+            actions.append(ActionResult(type="tts", success=spoken, message=message))
+            logger.debug("TTS playback", success=spoken, message=message)
+
+        # Log notification result
+        logger.info(
+            "Notification completed",
+            client_ip=client_ip,
+            actions_count=len(actions),
+            all_success=all(a.success for a in actions),
+        )
+
+        return NotifyResponse(success=True, actions=actions)
+
+    return app
+
+
+def run_server(
+    host: str = "127.0.0.1",
+    port: int = 51515,
+    sound_file: str | None = None,
+    debug: bool = False,
+) -> None:
+    """
+    Run the notification server.
+
+    Args:
+        host: Interface to bind to (default: 127.0.0.1 for security)
+        port: Port to listen on (default: 51515)
+        sound_file: Optional path to custom notification sound
+        debug: Enable debug mode
+    """
+    import uvicorn
+
+    from .logging import DEFAULT_LOG_DIR, setup_logging
+
+    # Configure logging
+    setup_logging(
+        log_dir=DEFAULT_LOG_DIR,
+        level="DEBUG" if debug else "INFO",
+        json_logs=False,  # Plain text for readability; set True for log aggregation
+    )
+
+    logger.info("Starting notification server on {}:{}", host, port)
+
+    app = create_app(sound_file=sound_file)
+    uvicorn.run(app, host=host, port=port, log_level="debug" if debug else "info")

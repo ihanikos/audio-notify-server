@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "audio-notify-server"
+version = "0.1.0"
+description = "A lightweight local notification server for remote task completion alerts"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+keywords = ["notification", "server", "alert", "sound", "tts"]
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pyttsx3>=2.90",
+    "loguru>=0.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "httpx>=0.26.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+audio-notify-server = "audio_notify_server.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/audio_notify_server"]
+
+[tool.hatch.envs.default]
+dependencies = [
+    "pytest",
+    "httpx",
+    "ruff",
+]
+
+[tool.hatch.envs.default.scripts]
+test = "pytest {args:tests}"
+lint = "ruff check ."
+format = "ruff format ."
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
