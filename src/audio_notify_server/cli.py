@@ -1,8 +1,15 @@
 """Command-line interface for audio-notify-server."""
 
+from __future__ import annotations
+
 import argparse
+import array
+import fcntl
 import socket
+import struct
 import sys
+
+from .server import run_server
 
 
 def get_interface_ip(interface_name: str) -> str | None:
@@ -16,9 +23,6 @@ def get_interface_ip(interface_name: str) -> str | None:
         IP address string or None if not found.
     """
     try:
-        import fcntl
-        import struct
-
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         ip_addr = socket.inet_ntoa(
             fcntl.ioctl(
@@ -27,9 +31,10 @@ def get_interface_ip(interface_name: str) -> str | None:
                 struct.pack("256s", interface_name.encode()[:15]),
             )[20:24]
         )
-        return ip_addr
-    except (OSError, IOError):
+    except OSError:
         return None
+    else:
+        return ip_addr
 
 
 def list_interfaces() -> list[tuple[str, str]]:
@@ -39,12 +44,7 @@ def list_interfaces() -> list[tuple[str, str]]:
     Returns:
         List of (interface_name, ip_address) tuples.
     """
-    interfaces = []
     try:
-        import array
-        import fcntl
-        import struct
-
         # Get list of interfaces
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         max_interfaces = 128
@@ -60,13 +60,14 @@ def list_interfaces() -> list[tuple[str, str]]:
         )[0]
 
         namestr = names.tobytes()
+        interfaces = []
         for i in range(0, outbytes, 40):
             name = namestr[i : i + 16].split(b"\0", 1)[0].decode()
             ip = socket.inet_ntoa(namestr[i + 20 : i + 24])
             interfaces.append((name, ip))
-    except (OSError, IOError):
+    except OSError:
         # Fallback: just return localhost
-        interfaces.append(("lo", "127.0.0.1"))
+        interfaces = [("lo", "127.0.0.1")]
 
     return interfaces
 
@@ -83,7 +84,7 @@ def find_interface_by_prefix(prefix: str) -> tuple[str, str] | None:
     """
     for name, ip in list_interfaces():
         if name.startswith(prefix):
-            return (name, ip)
+            return name, ip
     return None
 
 
@@ -172,9 +173,9 @@ Sending notifications (from remote server):
     args = parser.parse_args()
 
     if args.list_interfaces:
-        print("Available interfaces:")
+        print("Available interfaces:")  # noqa: T201
         for name, ip in list_interfaces():
-            print(f"  {name}: {ip}")
+            print(f"  {name}: {ip}")  # noqa: T201
         sys.exit(0)
 
     host = args.host
@@ -183,28 +184,27 @@ Sending notifications (from remote server):
     if args.interface_prefix:
         result = find_interface_by_prefix(args.interface_prefix)
         if result is None:
-            print(
+            print(  # noqa: T201
                 f"Error: No interface found with prefix '{args.interface_prefix}'",
                 file=sys.stderr,
             )
-            print("Use --list-interfaces to see available interfaces", file=sys.stderr)
+            print("Use --list-interfaces to see available interfaces", file=sys.stderr)  # noqa: T201
             sys.exit(1)
-        interface_name, host = result
-        print(f"Binding to interface {interface_name} ({host})")
+        interface_name, interface_ip = result
+        host = interface_ip
+        print(f"Binding to interface {interface_name} ({host})")  # noqa: T201
     elif args.interface:
         interface_ip = get_interface_ip(args.interface)
         if interface_ip is None:
-            print(f"Error: Could not find interface '{args.interface}'", file=sys.stderr)
-            print("Use --list-interfaces to see available interfaces", file=sys.stderr)
+            print(f"Error: Could not find interface '{args.interface}'", file=sys.stderr)  # noqa: T201
+            print("Use --list-interfaces to see available interfaces", file=sys.stderr)  # noqa: T201
             sys.exit(1)
         host = interface_ip
-        print(f"Binding to interface {args.interface} ({host})")
+        print(f"Binding to interface {args.interface} ({host})")  # noqa: T201
 
     # Security warning for non-localhost binding
-    if host != "127.0.0.1" and host != "::1":
-        print(f"Warning: Binding to {host} - ensure this is a trusted network!", file=sys.stderr)
-
-    from .server import run_server
+    if host not in {"127.0.0.1", "::1"}:
+        print(f"Warning: Binding to {host} - ensure this is a trusted network!", file=sys.stderr)  # noqa: T201
 
     run_server(
         host=host,

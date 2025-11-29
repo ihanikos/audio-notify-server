@@ -1,8 +1,14 @@
 """Sound playback functionality."""
 
+from __future__ import annotations
+
 import shutil
 import subprocess
+import sys
 from pathlib import Path
+
+# Timeout for audio playback operations (in seconds)
+AUDIO_PLAYBACK_TIMEOUT = 10
 
 
 def get_default_sound() -> Path | None:
@@ -36,12 +42,14 @@ def play_sound(sound_path: str | Path | None = None) -> bool:
 
     if sound_path is None:
         # Fall back to terminal bell
-        print("\a", end="", flush=True)
+        sys.stdout.write("\a")
+        sys.stdout.flush()
         return True
 
     sound_path = Path(sound_path)
     if not sound_path.exists():
-        print("\a", end="", flush=True)
+        sys.stdout.write("\a")
+        sys.stdout.flush()
         return False
 
     # Try various audio players
@@ -57,16 +65,21 @@ def play_sound(sound_path: str | Path | None = None) -> bool:
         player = player_cmd[0]
         if shutil.which(player):
             try:
-                subprocess.run(
+                # S603: subprocess call is safe - using hardcoded command list with validated paths
+                # S607: subprocess uses partial executable path - relying on PATH for audio players
+                subprocess.run(  # noqa: S603
                     player_cmd,
                     check=True,
                     capture_output=True,
-                    timeout=10,
+                    timeout=AUDIO_PLAYBACK_TIMEOUT,
+                    shell=False,
                 )
-                return True
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 continue
+            else:
+                return True
 
     # Last resort: terminal bell
-    print("\a", end="", flush=True)
+    sys.stdout.write("\a")
+    sys.stdout.flush()
     return True

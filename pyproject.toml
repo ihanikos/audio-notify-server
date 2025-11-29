@@ -46,4 +46,13 @@ line-length = 100
 target-version = "py39"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
+select = ["ALL"]
+ignore = [
+    "D",       # pydocstyle (we have docstrings but not in full pydoc format)
+    "ANN",     # flake8-annotations (type hints optional for now)
+    "COM812",  # trailing comma (conflicts with formatter)
+    "ISC001",  # single-line implicit string concat (conflicts with formatter)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # allow assert in tests

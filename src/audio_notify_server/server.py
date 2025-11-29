@@ -1,18 +1,19 @@
 """Notification server implementation using FastAPI."""
 
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Annotated
 
+import uvicorn
 from fastapi import FastAPI, Query, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from .logging import DEFAULT_LOG_DIR, setup_logging
 from .sound import play_sound
 from .tts import speak
-
-# Global config (set by create_app)
-_sound_file: str | None = None
 
 
 class NotifyRequest(BaseModel):
@@ -45,7 +46,7 @@ class HealthResponse(BaseModel):
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """Application lifespan handler."""
     logger.info("Audio notify server starting up")
     yield
@@ -62,9 +63,6 @@ def create_app(sound_file: str | None = None) -> FastAPI:
     Returns:
         Configured FastAPI application.
     """
-    global _sound_file
-    _sound_file = sound_file
-
     app = FastAPI(
         title="Audio Notify Server",
         description="A lightweight local notification server for remote task completion alerts. "
@@ -72,6 +70,9 @@ def create_app(sound_file: str | None = None) -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    # Store config in app.state instead of global variable
+    app.state.sound_file = sound_file
 
     @app.get(
         "/health",
@@ -104,7 +105,7 @@ def create_app(sound_file: str | None = None) -> FastAPI:
         )
 
         if body.sound:
-            sound_played = play_sound(_sound_file)
+            sound_played = play_sound(request.app.state.sound_file)
             actions.append(ActionResult(type="sound", success=sound_played))
             logger.debug("Sound playback", success=sound_played)
 
@@ -132,8 +133,8 @@ def create_app(sound_file: str | None = None) -> FastAPI:
     async def notify_get(
         request: Request,
         message: Annotated[str, Query(description="Message to speak via TTS")] = "",
-        sound: Annotated[bool, Query(description="Whether to play notification sound")] = True,
-        speak_msg: Annotated[
+        sound: Annotated[bool, Query(description="Whether to play notification sound")] = True,  # noqa: FBT002
+        speak_msg: Annotated[  # noqa: FBT002
             bool, Query(alias="speak", description="Whether to speak the message via TTS")
         ] = False,
     ) -> NotifyResponse:
@@ -152,7 +153,7 @@ def create_app(sound_file: str | None = None) -> FastAPI:
         )
 
         if sound:
-            sound_played = play_sound(_sound_file)
+            sound_played = play_sound(request.app.state.sound_file)
             actions.append(ActionResult(type="sound", success=sound_played))
             logger.debug("Sound playback", success=sound_played)
 
@@ -178,7 +179,7 @@ def run_server(
     host: str = "127.0.0.1",
     port: int = 51515,
     sound_file: str | None = None,
-    debug: bool = False,
+    debug: bool = False,  # noqa: FBT001, FBT002
 ) -> None:
     """
     Run the notification server.
@@ -189,10 +190,6 @@ def run_server(
         sound_file: Optional path to custom notification sound
         debug: Enable debug mode
     """
-    import uvicorn
-
-    from .logging import DEFAULT_LOG_DIR, setup_logging
-
     # Configure logging
     setup_logging(
         log_dir=DEFAULT_LOG_DIR,

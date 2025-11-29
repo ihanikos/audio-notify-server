@@ -4,6 +4,8 @@ Provides structured logging with rotation, writing to XDG-compliant directories
 rather than the repository root.
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
@@ -17,11 +19,12 @@ DEFAULT_LOG_DIR = Path.home() / ".local" / "state" / "audio-notify-server"
 logger.remove()
 
 
-def setup_logging(
+def setup_logging(  # noqa: PLR0913
     log_dir: Path | str | None = None,
     level: str = "INFO",
     rotation: str = "10 MB",
     retention: str = "7 days",
+    *,
     json_logs: bool = False,
     console: bool = True,
 ) -> None:
