@@ -13,7 +13,6 @@ keywords = ["notification", "server", "alert", "sound", "tts"]
 dependencies = [
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
-    "pyttsx3>=2.90",
     "loguru>=0.7.0",
 ]
 
