@@ -31,6 +31,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -39,7 +40,7 @@ def _get_lockfile_path() -> Path:
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
     if runtime_dir:
         return Path(runtime_dir) / "notify-hook.lock"
-    return Path(f"/tmp/notify-hook-{os.getuid()}.lock")
+    return Path(tempfile.gettempdir()) / f"notify-hook-{os.getuid()}.lock"
 
 LOCKFILE = _get_lockfile_path()
 NOTIFY_SERVER = os.environ.get("CLAUDE_NOTIFY_SERVER", "http://localhost:51515")

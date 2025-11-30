@@ -197,6 +197,10 @@ def _speak_elevenlabs(message: str, config: ElevenLabsConfig) -> bool:
             )
             response.raise_for_status()
 
+            if not response.content:
+                logger.warning("ElevenLabs API returned empty audio content")
+                return False
+
             # Save audio to temp file and play it
             with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
                 f.write(response.content)

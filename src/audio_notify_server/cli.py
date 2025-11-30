@@ -118,25 +118,25 @@ def _handle_list_voices() -> None:
         sys.exit(1)
 
     try:
-        response = httpx.get(
-            "https://api.elevenlabs.io/v1/voices",
-            headers={"xi-api-key": config.api_key},
-            timeout=30,
-        )
-        response.raise_for_status()
-        try:
-            voices = response.json().get("voices", [])
-        except ValueError:
-            logger.error("Invalid response from ElevenLabs API")
-            sys.exit(1)
-        logger.info("Available ElevenLabs voices:")
-        for voice in voices:
-            labels = voice.get("labels", {})
-            accent = labels.get("accent", "")
-            gender = labels.get("gender", "")
-            desc = labels.get("description", "")
-            info = ", ".join(filter(None, [gender, accent, desc]))
-            logger.info("  {} ({}): {}", voice["name"], voice["voice_id"], info)
+        with httpx.Client(timeout=30) as client:
+            response = client.get(
+                "https://api.elevenlabs.io/v1/voices",
+                headers={"xi-api-key": config.api_key},
+            )
+            response.raise_for_status()
+            try:
+                voices = response.json().get("voices", [])
+            except ValueError:
+                logger.error("Invalid response from ElevenLabs API")
+                sys.exit(1)
+            logger.info("Available ElevenLabs voices:")
+            for voice in voices:
+                labels = voice.get("labels", {})
+                accent = labels.get("accent", "")
+                gender = labels.get("gender", "")
+                desc = labels.get("description", "")
+                info = ", ".join(filter(None, [gender, accent, desc]))
+                logger.info("  {} ({}): {}", voice["name"], voice["voice_id"], info)
     except httpx.HTTPStatusError as e:
         logger.error("ElevenLabs API error: {}", e.response.text)
         sys.exit(1)
