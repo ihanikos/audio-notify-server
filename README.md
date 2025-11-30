@@ -33,17 +33,23 @@ Interactive API docs available at `http://SERVER_IP:51515/docs`
 ## Installation
 
 ```bash
-# Clone or download, then run the installer
+# Clone or download, then run the installer (recommended)
 ./install.sh
-
-# Or install manually with pip
-pip install --user -e .
 ```
 
 The installer will:
 1. Install the package
 2. Create a systemd user service
 3. Optionally enable and start the service
+
+### Manual Installation
+
+```bash
+# Install package only (no systemd service)
+pip install --user -e .
+```
+
+To manually set up the systemd service after pip install, see [Systemd Service](#systemd-service-zerotier) below.
 
 ## Usage
 
