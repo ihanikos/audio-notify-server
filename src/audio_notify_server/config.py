@@ -7,6 +7,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from loguru import logger
+
 # Config file locations (checked in order, first found wins)
 USER_CONFIG_PATH = Path.home() / ".config" / "audio-notify-server" / "config.json"
 SYSTEM_CONFIG_PATH = Path("/etc/audio-notify-server/config.json")
@@ -43,8 +45,10 @@ def load_config() -> dict:
         if config_path.exists():
             try:
                 return json.loads(config_path.read_text())
-            except (json.JSONDecodeError, OSError):
-                continue
+            except json.JSONDecodeError as e:
+                logger.error("Invalid JSON in config file {}: {}", config_path, e)
+            except OSError as e:
+                logger.error("Failed to read config file {}: {}", config_path, e)
     return {}
 
 
