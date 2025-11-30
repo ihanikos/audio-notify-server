@@ -3,7 +3,8 @@
     "deny": [
       "Edit(.claude/**)",
       "Write(.claude/**)",
-      "Read(.claude/**)"
+      "Edit(~/.config/audio-notify-server/**)",
+      "Write(~/.config/audio-notify-server/**)"
     ]
   },
   "hooks": {

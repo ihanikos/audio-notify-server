@@ -66,7 +66,7 @@ def _safe_run_audio_command(
         pid = os.posix_spawn(
             full_path,
             safe_cmd,
-            env=os.environ,
+            os.environ,
             file_actions=[
                 (os.POSIX_SPAWN_DUP2, devnull_fd, 0),  # stdin
                 (os.POSIX_SPAWN_DUP2, devnull_fd, 1),  # stdout
