@@ -109,7 +109,11 @@ def get_duration_from_transcript(transcript_path: Path) -> int:
 
 
 def get_last_user_message(transcript_path: Path) -> str:
-    """Get the last user message from transcript."""
+    """Get the last user message from transcript.
+
+    If the user message is very short (e.g., "Yes", "ok"), also include
+    the previous assistant message for context.
+    """
     try:
         lines = transcript_path.read_text().strip().split("\n")
         entries = [json.loads(line) for line in lines if line.strip()]
@@ -119,8 +123,33 @@ def get_last_user_message(transcript_path: Path) -> str:
             if e.get("type") == "user"
             and isinstance(e.get("message", {}).get("content"), str)
         ]
-        if user_entries:
-            return user_entries[-1]["message"]["content"][:500]
+        if not user_entries:
+            return ""
+
+        last_user_msg = user_entries[-1]["message"]["content"][:500]
+
+        # If user message is very short, include previous assistant context
+        if len(last_user_msg.strip()) < 20:
+            last_user_ts = user_entries[-1]["timestamp"]
+            # Find assistant message just before the last user message
+            prev_assistant_text = ""
+            for e in reversed(entries):
+                if e.get("timestamp", "") >= last_user_ts:
+                    continue
+                if e.get("type") == "assistant":
+                    content = e.get("message", {}).get("content", [])
+                    if isinstance(content, list):
+                        for item in content:
+                            if isinstance(item, dict) and item.get("type") == "text":
+                                prev_assistant_text = item.get("text", "")[:300]
+                                break
+                    elif isinstance(content, str):
+                        prev_assistant_text = content[:300]
+                    break
+            if prev_assistant_text:
+                return f"(In response to: {prev_assistant_text}...)\nUser said: {last_user_msg}"
+
+        return last_user_msg
     except Exception as e:
         if DEBUG:
             print(f"Debug: get_last_user_message error: {e}", file=sys.stderr)

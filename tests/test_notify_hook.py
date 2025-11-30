@@ -240,17 +240,39 @@ class TestHookFunctions(unittest.TestCase):
         hook = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(hook)
 
+        # Use a message longer than 20 chars to avoid context injection
         self._create_transcript([
             {"type": "user", "timestamp": "2025-01-01T10:00:00Z",
-             "message": {"content": "first message"}},
+             "message": {"content": "first message from user"}},
             {"type": "assistant", "timestamp": "2025-01-01T10:01:00Z",
              "message": {"content": [{"type": "text", "text": "response"}]}},
             {"type": "user", "timestamp": "2025-01-01T10:02:00Z",
-             "message": {"content": "second message"}},
+             "message": {"content": "second message from the user"}},
         ])
 
         msg = hook.get_last_user_message(self.transcript)
-        self.assertEqual(msg, "second message")
+        self.assertEqual(msg, "second message from the user")
+
+    def test_get_last_user_message_short_with_context(self):
+        """Test that short user messages include previous assistant context."""
+        import importlib.util
+        hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
+        spec = importlib.util.spec_from_file_location("hook", hook_path)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+
+        self._create_transcript([
+            {"type": "user", "timestamp": "2025-01-01T10:00:00Z",
+             "message": {"content": "Do something for me please"}},
+            {"type": "assistant", "timestamp": "2025-01-01T10:01:00Z",
+             "message": {"content": [{"type": "text", "text": "Would you like me to proceed?"}]}},
+            {"type": "user", "timestamp": "2025-01-01T10:02:00Z",
+             "message": {"content": "Yes"}},
+        ])
+
+        msg = hook.get_last_user_message(self.transcript)
+        self.assertIn("Yes", msg)
+        self.assertIn("Would you like me to proceed?", msg)
 
     def test_get_assistant_messages(self):
         """Test extracting assistant messages after last user message."""
