@@ -2,73 +2,54 @@
 
 from __future__ import annotations
 
-import contextlib
+import errno
 import os
+import select
 import shutil
-import signal
-import time
+
+from audio_notify_server.process import (
+    CommandError,
+    CommandTimeoutError,
+    wait_for_process,
+)
 
 # Trusted TTS executables - hardcoded list for security
 TRUSTED_TTS_ENGINES = frozenset({"espeak", "espeak-ng", "spd-say", "festival"})
 
-
-class CommandError(Exception):
-    """Command execution error."""
-
-
-class CommandTimeoutError(Exception):
-    """Command timeout error."""
+# Maximum time to wait for pipe write (seconds)
+PIPE_WRITE_TIMEOUT = 5.0
 
 
-def _wait_for_process(pid: int, timeout: float) -> int:
-    """Wait for process to complete with timeout.
+def _write_to_pipe_nonblocking(fd: int, data: bytes, timeout: float) -> None:
+    """Write data to a pipe file descriptor with timeout.
+
+    Uses non-blocking I/O to avoid indefinite blocking if the pipe buffer fills.
 
     Args:
-        pid: Process ID to wait for.
-        timeout: Timeout in seconds.
-
-    Returns:
-        Exit code of the process.
+        fd: File descriptor to write to.
+        data: Data to write.
+        timeout: Maximum time to wait for write to complete.
 
     Raises:
-        CommandError: If the process fails.
-        CommandTimeoutError: If the process times out.
+        OSError: If write fails or times out.
 
     """
-    start_time = time.time()
-    while True:
+    os.set_blocking(fd, False)
+    written = 0
+    while written < len(data):
+        ready, _, _ = select.select([], [fd], [], timeout)
+        if not ready:
+            msg = f"Pipe write timed out after {timeout} seconds"
+            raise OSError(errno.ETIMEDOUT, msg)
         try:
-            wpid, status = os.waitpid(pid, os.WNOHANG)
-        except ChildProcessError:
-            # Process doesn't exist (already reaped)
-            return 0
-        if wpid == pid:
-            if os.WIFEXITED(status):
-                return os.WEXITSTATUS(status)
-            msg = "Command terminated abnormally"
-            raise CommandError(msg)
-
-        if time.time() - start_time > timeout:
-            _kill_process(pid)
-            msg = f"Command timed out after {timeout} seconds"
-            raise CommandTimeoutError(msg)
-
-        time.sleep(0.01)
-
-
-def _kill_process(pid: int) -> None:
-    """Kill a process gracefully then forcefully.
-
-    Args:
-        pid: Process ID to kill.
-
-    """
-    with contextlib.suppress(ProcessLookupError):
-        os.kill(pid, signal.SIGTERM)
-        time.sleep(0.1)
-        os.kill(pid, signal.SIGKILL)
-    with contextlib.suppress(ChildProcessError):
-        os.waitpid(pid, 0)
+            n = os.write(fd, data[written:])
+            if n == 0:
+                msg = "Pipe closed unexpectedly"
+                raise OSError(errno.EPIPE, msg)
+            written += n
+        except BlockingIOError:
+            # Buffer full, wait for it to drain
+            continue
 
 
 def _safe_run_tts_command(
@@ -144,7 +125,7 @@ def _safe_run_tts_command(
         if input_data is not None:
             os.close(read_fd)
             read_fd = None
-            os.write(write_fd, input_data)
+            _write_to_pipe_nonblocking(write_fd, input_data, PIPE_WRITE_TIMEOUT)
             os.close(write_fd)
             write_fd = None
     finally:
@@ -155,7 +136,7 @@ def _safe_run_tts_command(
             os.close(write_fd)
 
     # Wait for process with timeout
-    exit_code = _wait_for_process(pid, timeout)
+    exit_code = wait_for_process(pid, timeout)
     if exit_code != 0:
         msg = f"Command failed with exit code {exit_code}"
         raise CommandError(msg)
