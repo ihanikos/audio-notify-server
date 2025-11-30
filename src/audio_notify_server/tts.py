@@ -29,7 +29,7 @@ def speak(message: str) -> bool:
         if shutil.which(cmd[0]):
             try:
                 if cmd[0] == "festival":
-                    subprocess.run(  # noqa: S603
+                    subprocess.run(
                         cmd,
                         input=message.encode(),
                         check=True,
@@ -37,7 +37,7 @@ def speak(message: str) -> bool:
                         timeout=30,
                     )
                 else:
-                    subprocess.run(  # noqa: S603
+                    subprocess.run(
                         cmd,
                         check=True,
                         capture_output=True,

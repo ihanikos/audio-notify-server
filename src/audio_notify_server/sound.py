@@ -65,9 +65,7 @@ def play_sound(sound_path: str | Path | None = None) -> bool:
         player = player_cmd[0]
         if shutil.which(player):
             try:
-                # S603: subprocess call is safe - using hardcoded command list with validated paths
-                # S607: subprocess uses partial executable path - relying on PATH for audio players
-                subprocess.run(  # noqa: S603
+                subprocess.run(
                     player_cmd,
                     check=True,
                     capture_output=True,

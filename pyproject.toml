@@ -53,3 +53,6 @@ ignore = ["D203", "D213"]
 [tool.ruff.lint.per-file-ignores]
 # S101: allow assert statements in tests (pytest idiom)
 "tests/*" = ["S101"]
+# S603: subprocess calls are safe - using hardcoded commands with shell=False
+"src/audio_notify_server/sound.py" = ["S603"]
+"src/audio_notify_server/tts.py" = ["S603"]
