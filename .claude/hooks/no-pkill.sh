@@ -1,14 +1,20 @@
 #!/bin/bash
 # Prevent reckless use of pkill and killall
 
+# Check if jq is available
+if ! command -v jq &> /dev/null; then
+    echo "STOP: jq is required but not installed" >&2
+    exit 2
+fi
+
 # Read hook input from stdin
 input=$(cat)
 
 # Get the command from the hook input
 command=$(echo "$input" | jq -r '.tool_input.command // empty')
 
-# Check for pkill or killall
-if echo "$command" | grep -qE '\b(pkill|killall)\b'; then
+# Check for pkill or killall (including full paths like /usr/bin/pkill)
+if echo "$command" | grep -qE '(^|[/[:space:]])(pkill|killall)([[:space:]]|$)'; then
     echo "STOP: Do not use pkill or killall - these are dangerous blanket commands." >&2
     echo "" >&2
     echo "Instead:" >&2

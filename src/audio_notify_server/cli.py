@@ -107,6 +107,9 @@ def _handle_list_interfaces() -> None:
 def _handle_list_voices() -> None:
     """List available ElevenLabs voices and exit."""
     config = get_elevenlabs_config()
+    if not config.enabled:
+        logger.error("ElevenLabs is disabled in configuration")
+        sys.exit(1)
     if not config.api_key:
         logger.error("ElevenLabs API key not configured")
         logger.info(
@@ -121,7 +124,11 @@ def _handle_list_voices() -> None:
             timeout=30,
         )
         response.raise_for_status()
-        voices = response.json().get("voices", [])
+        try:
+            voices = response.json().get("voices", [])
+        except ValueError:
+            logger.error("Invalid response from ElevenLabs API")
+            sys.exit(1)
         logger.info("Available ElevenLabs voices:")
         for voice in voices:
             labels = voice.get("labels", {})
@@ -169,6 +176,8 @@ def _resolve_host(args: argparse.Namespace) -> str:
             sys.exit(1)
         host = interface_ip
         logger.info("Binding to interface {} ({})", args.interface, host)
+    else:
+        logger.debug("Using default host: {}", host)
 
     return host
 

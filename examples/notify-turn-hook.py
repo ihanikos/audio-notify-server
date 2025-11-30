@@ -44,6 +44,7 @@ def _get_lockfile_path() -> Path:
 LOCKFILE = _get_lockfile_path()
 NOTIFY_SERVER = os.environ.get("CLAUDE_NOTIFY_SERVER", "http://localhost:51515")
 MIN_DURATION = int(os.environ.get("CLAUDE_NOTIFY_MIN_DURATION", "60"))
+DEBUG = os.environ.get("CLAUDE_NOTIFY_DEBUG", "").lower() in ("1", "true")
 
 
 def parse_timestamp(ts: str) -> datetime:
@@ -77,7 +78,9 @@ def get_duration_from_transcript(transcript_path: Path) -> int:
         asst_ts = parse_timestamp(last_asst["timestamp"])
 
         return int((asst_ts - user_ts).total_seconds())
-    except Exception:
+    except Exception as e:
+        if DEBUG:
+            print(f"Debug: get_duration_from_transcript error: {e}", file=sys.stderr)
         return 0
 
 
@@ -94,8 +97,9 @@ def get_last_user_message(transcript_path: Path) -> str:
         ]
         if user_entries:
             return user_entries[-1]["message"]["content"][:500]
-    except Exception:
-        pass
+    except Exception as e:
+        if DEBUG:
+            print(f"Debug: get_last_user_message error: {e}", file=sys.stderr)
     return ""
 
 
@@ -130,7 +134,9 @@ def get_assistant_messages(transcript_path: Path) -> str:
                     texts.append(content)
 
         return "\n".join(texts)[:2000]
-    except Exception:
+    except Exception as e:
+        if DEBUG:
+            print(f"Debug: get_assistant_messages error: {e}", file=sys.stderr)
         return ""
 
 
@@ -155,7 +161,9 @@ Assistant did: {assistant_msgs[:1500]}"""
             timeout=60
         )
         return result.stdout.strip() if result.returncode == 0 else ""
-    except Exception:
+    except Exception as e:
+        if DEBUG:
+            print(f"Debug: get_summary error: {e}", file=sys.stderr)
         return ""
     finally:
         LOCKFILE.unlink(missing_ok=True)
@@ -184,8 +192,9 @@ def send_notification(message: str) -> None:
             method="POST"
         )
         urllib.request.urlopen(req, timeout=60)
-    except Exception:
-        pass
+    except Exception as e:
+        if DEBUG:
+            print(f"Debug: send_notification error: {e}", file=sys.stderr)
 
 
 def main():

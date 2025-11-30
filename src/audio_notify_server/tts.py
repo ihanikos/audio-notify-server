@@ -36,6 +36,9 @@ ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/text-to-speech"
 # Timeout for ElevenLabs API requests (seconds)
 ELEVENLABS_TIMEOUT = 30.0
 
+# Timeout for audio playback and local TTS commands (seconds)
+AUDIO_PLAYBACK_TIMEOUT = 30.0
+
 
 def _write_to_pipe_nonblocking(fd: int, data: bytes, timeout: float) -> None:
     """Write data to a pipe file descriptor with timeout.
@@ -261,7 +264,7 @@ def _play_audio_file(path: str) -> bool:
                 os.close(devnull_fd)
 
             try:
-                exit_code = wait_for_process(pid, timeout=30)
+                exit_code = wait_for_process(pid, timeout=AUDIO_PLAYBACK_TIMEOUT)
                 if exit_code == 0:
                     return True
             except (CommandError, CommandTimeoutError):
@@ -293,13 +296,13 @@ def _speak_local(message: str) -> bool:
                 if cmd[0] == "festival":
                     _safe_run_tts_command(
                         cmd,
-                        timeout=30,
+                        timeout=AUDIO_PLAYBACK_TIMEOUT,
                         input_data=message.encode(),
                     )
                 else:
                     _safe_run_tts_command(
                         cmd,
-                        timeout=30,
+                        timeout=AUDIO_PLAYBACK_TIMEOUT,
                     )
             except (CommandError, CommandTimeoutError, FileNotFoundError, ValueError, OSError):
                 continue

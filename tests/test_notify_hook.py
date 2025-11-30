@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from typing import Optional
 
 
 class TestNotifyHook(unittest.TestCase):
@@ -72,8 +72,7 @@ fi
         ]
         self.transcript.write_text("\n".join(lines) + "\n")
 
-    def _run_hook(self, cwd: str = "/tmp/test-project", env_overrides: dict = None,
-                  mock_urlopen: MagicMock = None):
+    def _run_hook(self, cwd: str = "/tmp/test-project", env_overrides: Optional[dict] = None):
         """Run the hook."""
         hook_input = json.dumps({
             "transcript_path": str(self.transcript),
@@ -108,9 +107,10 @@ fi
             "Done quickly"
         )
 
-        with patch('urllib.request.urlopen') as mock_urlopen:
-            self._run_hook()
-            mock_urlopen.assert_not_called()
+        # Hook runs in subprocess, so we verify it exits successfully
+        # without errors (duration check should cause early exit)
+        result = self._run_hook()
+        self.assertEqual(result.returncode, 0)
 
     def test_notify_long_tasks(self):
         """Tasks over 60 seconds should trigger notification."""
@@ -122,11 +122,10 @@ fi
             "Done after a while"
         )
 
-        with patch('urllib.request.urlopen') as mock_urlopen:
-            result = self._run_hook()
-            # The hook runs in a subprocess, so we can't directly mock urlopen
-            # Instead, check the hook ran successfully
-            self.assertEqual(result.returncode, 0)
+        # Hook runs in subprocess, so we can't mock urlopen
+        # We verify the hook ran successfully without errors
+        result = self._run_hook()
+        self.assertEqual(result.returncode, 0)
 
     def test_lockfile_prevents_recursion(self):
         """Lockfile should prevent recursive hook execution."""
