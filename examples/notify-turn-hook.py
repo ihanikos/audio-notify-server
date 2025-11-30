@@ -34,7 +34,14 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-LOCKFILE = Path("/tmp/notify-hook.lock")
+def _get_lockfile_path() -> Path:
+    """Get a user-specific lockfile path."""
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime_dir:
+        return Path(runtime_dir) / "notify-hook.lock"
+    return Path(f"/tmp/notify-hook-{os.getuid()}.lock")
+
+LOCKFILE = _get_lockfile_path()
 NOTIFY_SERVER = os.environ.get("CLAUDE_NOTIFY_SERVER", "http://localhost:51515")
 MIN_DURATION = int(os.environ.get("CLAUDE_NOTIFY_MIN_DURATION", "60"))
 
@@ -158,6 +165,13 @@ def send_notification(message: str) -> None:
     """Send notification to audio-notify-server."""
     try:
         import urllib.request
+        from urllib.parse import urlparse
+
+        # Validate URL scheme to prevent SSRF
+        parsed = urlparse(NOTIFY_SERVER)
+        if parsed.scheme not in ("http", "https"):
+            return
+
         data = json.dumps({
             "message": message,
             "speak": True,
