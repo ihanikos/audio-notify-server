@@ -44,7 +44,10 @@ def _get_lockfile_path() -> Path:
 
 LOCKFILE = _get_lockfile_path()
 NOTIFY_SERVER = os.environ.get("CLAUDE_NOTIFY_SERVER", "http://localhost:51515")
-MIN_DURATION = int(os.environ.get("CLAUDE_NOTIFY_MIN_DURATION", "60"))
+try:
+    MIN_DURATION = int(os.environ.get("CLAUDE_NOTIFY_MIN_DURATION", "60"))
+except ValueError:
+    MIN_DURATION = 60
 DEBUG = os.environ.get("CLAUDE_NOTIFY_DEBUG", "").lower() in ("1", "true")
 
 
@@ -179,6 +182,7 @@ def send_notification(message: str) -> None:
         # Validate URL scheme to prevent SSRF
         parsed = urlparse(NOTIFY_SERVER)
         if parsed.scheme not in ("http", "https"):
+            print(f"Warning: Invalid URL scheme '{parsed.scheme}' in CLAUDE_NOTIFY_SERVER", file=sys.stderr)
             return
 
         data = json.dumps({

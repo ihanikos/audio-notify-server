@@ -246,12 +246,10 @@ def _play_audio_file(path: str) -> bool:
 
     for player_cmd in players:
         player = player_cmd[0]
-        if player in TRUSTED_AUDIO_PLAYERS and shutil.which(player):
+        full_path = shutil.which(player) if player in TRUSTED_AUDIO_PLAYERS else None
+        if full_path:
             devnull_fd = os.open(os.devnull, os.O_RDWR)
             try:
-                full_path = shutil.which(player)
-                if not full_path:
-                    continue
                 safe_cmd = [full_path, *player_cmd[1:]]
                 pid = os.posix_spawn(
                     full_path,
