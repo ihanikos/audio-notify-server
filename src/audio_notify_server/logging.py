@@ -16,9 +16,6 @@ from loguru import logger
 # Falls back to ~/.local/state/audio-notify-server/
 DEFAULT_LOG_DIR = Path.home() / ".local" / "state" / "audio-notify-server"
 
-# Remove default handler
-logger.remove()
-
 
 @dataclass
 class LogConfig:
