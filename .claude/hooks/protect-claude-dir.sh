@@ -6,10 +6,9 @@
 
 input=$(cat)
 
-cd "$CLAUDE_PROJECT_DIR"
+cd "$CLAUDE_PROJECT_DIR" || exit 2
 
-# Extract the tool name and file path from hook input
-tool_name=$(echo "$input" | jq -r '.tool_name // empty')
+# Extract the file path, pattern, and command from hook input
 file_path=$(echo "$input" | jq -r '.tool_input.file_path // empty')
 pattern=$(echo "$input" | jq -r '.tool_input.pattern // empty')
 command=$(echo "$input" | jq -r '.tool_input.command // empty')

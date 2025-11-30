@@ -42,15 +42,16 @@ def _wait_for_process(pid: int, timeout: float) -> int:
     """
     start_time = time.time()
     while True:
-        wpid, status = os.waitpid(pid, os.WNOHANG)
+        try:
+            wpid, status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            # Process doesn't exist (already reaped)
+            return 0
         if wpid == pid:
             if os.WIFEXITED(status):
                 return os.WEXITSTATUS(status)
             msg = "Command terminated abnormally"
             raise CommandError(msg)
-        if wpid == -1:
-            # Process doesn't exist (already reaped)
-            return 0
 
         if time.time() - start_time > timeout:
             _kill_process(pid)
@@ -117,16 +118,16 @@ def _safe_run_audio_command(
 
     # Use posix_spawn to launch the process (not flagged by S603)
     devnull_fd = os.open(os.devnull, os.O_RDWR)
-    file_actions = os.POSIX_SPAWN_CLOSE
     try:
         pid = os.posix_spawn(
             full_path,
             safe_cmd,
             env=os.environ,
             file_actions=[
-                (file_actions, devnull_fd),
-                (os.POSIX_SPAWN_DUP2, devnull_fd, 1),
-                (os.POSIX_SPAWN_DUP2, devnull_fd, 2),
+                (os.POSIX_SPAWN_DUP2, devnull_fd, 0),  # stdin
+                (os.POSIX_SPAWN_DUP2, devnull_fd, 1),  # stdout
+                (os.POSIX_SPAWN_DUP2, devnull_fd, 2),  # stderr
+                (os.POSIX_SPAWN_CLOSE, devnull_fd),
             ],
         )
     finally:

@@ -37,15 +37,16 @@ def _wait_for_process(pid: int, timeout: float) -> int:
     """
     start_time = time.time()
     while True:
-        wpid, status = os.waitpid(pid, os.WNOHANG)
+        try:
+            wpid, status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            # Process doesn't exist (already reaped)
+            return 0
         if wpid == pid:
             if os.WIFEXITED(status):
                 return os.WEXITSTATUS(status)
             msg = "Command terminated abnormally"
             raise CommandError(msg)
-        if wpid == -1:
-            # Process doesn't exist (already reaped)
-            return 0
 
         if time.time() - start_time > timeout:
             _kill_process(pid)
@@ -114,23 +115,24 @@ def _safe_run_tts_command(
 
     # Use posix_spawn to launch the process (not flagged by S603)
     devnull_fd = os.open(os.devnull, os.O_RDWR)
+    read_fd, write_fd = None, None
     file_actions = []
 
-    # Setup file descriptors for stdin/stdout/stderr
-    if input_data is not None:
-        # Create a pipe for stdin
-        read_fd, write_fd = os.pipe()
-        file_actions.append((os.POSIX_SPAWN_DUP2, read_fd, 0))
-        file_actions.append((os.POSIX_SPAWN_CLOSE, write_fd))
-    else:
-        file_actions.append((os.POSIX_SPAWN_DUP2, devnull_fd, 0))
-
-    # Redirect stdout and stderr to /dev/null
-    file_actions.append((os.POSIX_SPAWN_DUP2, devnull_fd, 1))
-    file_actions.append((os.POSIX_SPAWN_DUP2, devnull_fd, 2))
-    file_actions.append((os.POSIX_SPAWN_CLOSE, devnull_fd))
-
     try:
+        # Setup file descriptors for stdin/stdout/stderr
+        if input_data is not None:
+            # Create a pipe for stdin
+            read_fd, write_fd = os.pipe()
+            file_actions.append((os.POSIX_SPAWN_DUP2, read_fd, 0))
+            file_actions.append((os.POSIX_SPAWN_CLOSE, write_fd))
+        else:
+            file_actions.append((os.POSIX_SPAWN_DUP2, devnull_fd, 0))
+
+        # Redirect stdout and stderr to /dev/null
+        file_actions.append((os.POSIX_SPAWN_DUP2, devnull_fd, 1))
+        file_actions.append((os.POSIX_SPAWN_DUP2, devnull_fd, 2))
+        file_actions.append((os.POSIX_SPAWN_CLOSE, devnull_fd))
+
         pid = os.posix_spawn(
             full_path,
             safe_cmd,
@@ -141,10 +143,16 @@ def _safe_run_tts_command(
         # Write input data if provided
         if input_data is not None:
             os.close(read_fd)
+            read_fd = None
             os.write(write_fd, input_data)
             os.close(write_fd)
+            write_fd = None
     finally:
         os.close(devnull_fd)
+        if read_fd is not None:
+            os.close(read_fd)
+        if write_fd is not None:
+            os.close(write_fd)
 
     # Wait for process with timeout
     exit_code = _wait_for_process(pid, timeout)
