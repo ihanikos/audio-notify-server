@@ -136,7 +136,9 @@ def _handle_list_voices() -> None:
                 gender = labels.get("gender", "")
                 desc = labels.get("description", "")
                 info = ", ".join(filter(None, [gender, accent, desc]))
-                logger.info("  {} ({}): {}", voice["name"], voice["voice_id"], info)
+                name = voice.get("name", "Unknown")
+                voice_id = voice.get("voice_id", "N/A")
+                logger.info("  {} ({}): {}", name, voice_id, info)
     except httpx.HTTPStatusError as e:
         logger.error("ElevenLabs API error: {}", e.response.text)
         sys.exit(1)
