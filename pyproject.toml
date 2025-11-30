@@ -51,4 +51,5 @@ select = ["ALL"]
 ignore = ["D203", "D213"]
 
 [tool.ruff.lint.per-file-ignores]
+# S101: allow assert statements in tests (pytest idiom)
 "tests/*" = ["S101"]

@@ -183,12 +183,38 @@ Same as POST, using query parameters.
 
 Health check endpoint. Returns `{"status": "ok"}`.
 
+## Configuration
+
+### Server Configuration
+
+Create `/etc/audio-notify-server/config.json` to customize server behavior:
+
+```json
+{
+  "max_message_length": 500
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| max_message_length | 500 | Maximum characters allowed in TTS messages. Requests exceeding this limit receive a 400 error asking to summarize. |
+
+### Logging
+
+Logs are written to `~/.local/state/audio-notify-server/audio-notify-server.log` with automatic rotation (10 MB) and retention (7 days).
+
+Use `--debug` for verbose logging:
+```bash
+audio-notify-server --debug
+```
+
 ## Security Considerations
 
 - **Default binding**: Localhost only (127.0.0.1)
 - **No authentication**: Relies on network isolation (VPN)
 - **Recommended setup**: Bind to VPN interface only (`--interface-prefix zt`)
 - **Never bind to 0.0.0.0** on untrusted networks
+- **Message length limit**: Configurable max length prevents abuse
 
 ## Requirements
 

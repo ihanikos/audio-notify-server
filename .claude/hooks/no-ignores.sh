@@ -38,7 +38,8 @@ Fix the underlying lint issues instead."
     if grep -q 'per-file-ignores' pyproject.toml 2>/dev/null; then
         pfi_content=$(sed -n '/\[tool\.ruff\.lint\.per-file-ignores\]/,/^\[/p' pyproject.toml)
         # Check if there are any ignores other than S101 in tests
-        disallowed=$(echo "$pfi_content" | grep -v '^\[' | grep -v '^$' | grep -v '"tests/\*".*S101' || true)
+        # Filter out: section headers, empty lines, comments, and the allowed S101 in tests
+        disallowed=$(echo "$pfi_content" | grep -v '^\[' | grep -v '^$' | grep -v '^#' | grep -v '"tests/\*".*S101' || true)
         if [ -n "$disallowed" ]; then
             errors="${errors}
 
