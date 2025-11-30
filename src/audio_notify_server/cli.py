@@ -19,6 +19,9 @@ from .server import run_server
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+# Timeout for ElevenLabs API requests (seconds)
+ELEVENLABS_API_TIMEOUT = 30.0
+
 
 def get_interface_ip(interface_name: str) -> str | None:
     """Return the IP address of a network interface.
@@ -118,7 +121,7 @@ def _handle_list_voices() -> None:
         sys.exit(1)
 
     try:
-        with httpx.Client(timeout=30) as client:
+        with httpx.Client(timeout=ELEVENLABS_API_TIMEOUT) as client:
             response = client.get(
                 "https://api.elevenlabs.io/v1/voices",
                 headers={"xi-api-key": config.api_key},

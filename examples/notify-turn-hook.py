@@ -51,6 +51,26 @@ except ValueError:
 DEBUG = os.environ.get("CLAUDE_NOTIFY_DEBUG", "").lower() in ("1", "true")
 
 
+def _acquire_lock() -> bool:
+    """Try to acquire the lock atomically. Returns False if already held."""
+    try:
+        fd = os.open(LOCKFILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(fd)
+        return True
+    except FileExistsError:
+        return False
+    except OSError:
+        return False
+
+
+def _release_lock() -> None:
+    """Release the lock file."""
+    try:
+        LOCKFILE.unlink()
+    except FileNotFoundError:
+        pass
+
+
 def parse_timestamp(ts: str) -> datetime:
     """Parse ISO8601 timestamp."""
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
@@ -156,7 +176,8 @@ User asked: {last_user_msg[:200]}
 Assistant did: {assistant_msgs[:1500]}"""
 
     try:
-        LOCKFILE.touch()
+        if not _acquire_lock():
+            return ""
         result = subprocess.run(
             ["claude", "--print", "--model", "haiku"],
             input=prompt,
@@ -170,7 +191,7 @@ Assistant did: {assistant_msgs[:1500]}"""
             print(f"Debug: get_summary error: {e}", file=sys.stderr)
         return ""
     finally:
-        LOCKFILE.unlink(missing_ok=True)
+        _release_lock()
 
 
 def send_notification(message: str) -> None:
@@ -203,7 +224,7 @@ def send_notification(message: str) -> None:
 
 
 def main():
-    # Prevent recursive hook triggers
+    # Prevent recursive hook triggers (lockfile created atomically by get_summary)
     if LOCKFILE.exists():
         return
 
