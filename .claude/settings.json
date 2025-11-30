@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "deny": [
+      "Edit(.claude/**)",
+      "Write(.claude/**)",
+      "Read(.claude/**)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
