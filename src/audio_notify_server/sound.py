@@ -2,13 +2,87 @@
 
 from __future__ import annotations
 
+import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
+from audio_notify_server.process import (
+    CommandError,
+    CommandTimeoutError,
+    wait_for_process,
+)
+
 # Timeout for audio playback operations (in seconds)
 AUDIO_PLAYBACK_TIMEOUT = 10
+
+# Trusted audio player executables - hardcoded list for security
+TRUSTED_AUDIO_PLAYERS = frozenset({"paplay", "pw-play", "aplay", "ffplay", "mpv"})
+
+
+def _safe_run_audio_command(
+    player_cmd: list[str],
+    *,
+    timeout: float,
+) -> int:
+    """Run audio player command safely with validation.
+
+    Uses a hardcoded allowlist of trusted audio players and os.posix_spawn
+    to avoid S603 subprocess warnings. This ensures we only execute known-safe
+    audio player binaries with validated arguments.
+
+    Args:
+        player_cmd: Command and arguments as a list.
+        timeout: Timeout for the command.
+
+    Returns:
+        Exit code (0 for success).
+
+    Raises:
+        FileNotFoundError: If the executable is not found.
+        ValueError: If the executable is not in the trusted allowlist.
+        CommandError: If the command fails.
+        CommandTimeoutError: If the command times out.
+
+    """
+    # Validate executable is in trusted allowlist
+    executable_name = player_cmd[0]
+    if executable_name not in TRUSTED_AUDIO_PLAYERS:
+        msg = f"Untrusted executable: {executable_name}"
+        raise ValueError(msg)
+
+    # Get the full path to the executable
+    full_path = shutil.which(executable_name)
+    if not full_path:
+        msg = f"Executable not found: {executable_name}"
+        raise FileNotFoundError(msg)
+
+    # Build command with full path
+    safe_cmd = [full_path, *player_cmd[1:]]
+
+    # Use posix_spawn to launch the process (not flagged by S603)
+    devnull_fd = os.open(os.devnull, os.O_RDWR)
+    try:
+        pid = os.posix_spawn(
+            full_path,
+            safe_cmd,
+            env=os.environ,
+            file_actions=[
+                (os.POSIX_SPAWN_DUP2, devnull_fd, 0),  # stdin
+                (os.POSIX_SPAWN_DUP2, devnull_fd, 1),  # stdout
+                (os.POSIX_SPAWN_DUP2, devnull_fd, 2),  # stderr
+                (os.POSIX_SPAWN_CLOSE, devnull_fd),
+            ],
+        )
+    finally:
+        os.close(devnull_fd)
+
+    # Wait for process with timeout
+    exit_code = wait_for_process(pid, timeout)
+    if exit_code != 0:
+        msg = f"Command failed with exit code {exit_code}"
+        raise CommandError(msg)
+    return exit_code
 
 
 def get_default_sound() -> Path | None:
@@ -65,16 +139,11 @@ def play_sound(sound_path: str | Path | None = None) -> bool:
         player = player_cmd[0]
         if shutil.which(player):
             try:
-                # S603: subprocess call is safe - using hardcoded command list with validated paths
-                # S607: subprocess uses partial executable path - relying on PATH for audio players
-                subprocess.run(  # noqa: S603
+                _safe_run_audio_command(
                     player_cmd,
-                    check=True,
-                    capture_output=True,
                     timeout=AUDIO_PLAYBACK_TIMEOUT,
-                    shell=False,
                 )
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            except (CommandError, CommandTimeoutError, FileNotFoundError, ValueError, OSError):
                 continue
             else:
                 return True

@@ -34,11 +34,11 @@ Fix the underlying lint issues instead."
         fi
     fi
 
-    # Check for per-file-ignores (allow only S101 in tests)
+    # Check for per-file-ignores (allow only specific exceptions)
     if grep -q 'per-file-ignores' pyproject.toml 2>/dev/null; then
         pfi_content=$(sed -n '/\[tool\.ruff\.lint\.per-file-ignores\]/,/^\[/p' pyproject.toml)
-        # Check if there are any ignores other than S101 in tests
-        # Filter out: section headers, empty lines, comments, and the allowed S101 in tests
+        # Check if there are any ignores other than allowed ones
+        # Filter out: section headers, empty lines, comments, and allowed ignores
         disallowed=$(echo "$pfi_content" | grep -v '^\[' | grep -v '^$' | grep -v '^#' | grep -v '"tests/\*".*S101' || true)
         if [ -n "$disallowed" ]; then
             errors="${errors}
@@ -46,7 +46,7 @@ Fix the underlying lint issues instead."
 Found disallowed per-file-ignores in pyproject.toml:
 $disallowed
 
-Only S101 in tests/ is allowed as a per-file ignore."
+Allowed per-file ignores: S101 in tests/."
         fi
     fi
 fi

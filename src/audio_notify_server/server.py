@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Annotated
 
 import uvicorn
@@ -105,16 +104,14 @@ def create_app(sound_file: str | None = None) -> FastAPI:
 
         client_ip = request.client.host if request.client else "unknown"
         actions: list[ActionResult] = []
-        timestamp = datetime.now(timezone.utc).isoformat()
 
         # Log the notification request
         logger.info(
-            "Notification received",
-            client_ip=client_ip,
-            message=body.message or "(none)",
-            sound=body.sound,
-            speak=body.speak,
-            timestamp=timestamp,
+            "Notification received from {} | message={!r} sound={} speak={}",
+            client_ip,
+            body.message or "(none)",
+            body.sound,
+            body.speak,
         )
 
         if body.sound:
@@ -129,10 +126,10 @@ def create_app(sound_file: str | None = None) -> FastAPI:
 
         # Log notification result
         logger.info(
-            "Notification completed",
-            client_ip=client_ip,
-            actions_count=len(actions),
-            all_success=all(a.success for a in actions),
+            "Notification completed from {} | actions={} all_success={}",
+            client_ip,
+            len(actions),
+            all(a.success for a in actions),
         )
 
         return NotifyResponse(success=True, actions=actions)
@@ -163,16 +160,14 @@ def create_app(sound_file: str | None = None) -> FastAPI:
 
         client_ip = request.client.host if request.client else "unknown"
         actions: list[ActionResult] = []
-        timestamp = datetime.now(timezone.utc).isoformat()
 
         # Log the notification request
         logger.info(
-            "Notification received (GET)",
-            client_ip=client_ip,
-            message=message or "(none)",
-            sound=sound,
-            speak=speak_msg,
-            timestamp=timestamp,
+            "Notification received (GET) from {} | message={!r} sound={} speak={}",
+            client_ip,
+            message or "(none)",
+            sound,
+            speak_msg,
         )
 
         if sound:
@@ -187,10 +182,10 @@ def create_app(sound_file: str | None = None) -> FastAPI:
 
         # Log notification result
         logger.info(
-            "Notification completed",
-            client_ip=client_ip,
-            actions_count=len(actions),
-            all_success=all(a.success for a in actions),
+            "Notification completed from {} | actions={} all_success={}",
+            client_ip,
+            len(actions),
+            all(a.success for a in actions),
         )
 
         return NotifyResponse(success=True, actions=actions)

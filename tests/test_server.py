@@ -151,3 +151,49 @@ def test_notify_get_message_too_long(client: TestClient) -> None:
         data: dict[str, Any] = response.json()
         assert "Message too long" in data["detail"]
         assert "Please summarize" in data["detail"]
+
+
+def test_notify_post_logs_message(client: TestClient) -> None:
+    """Test POST /notify logs the message content."""
+    with (
+        patch("audio_notify_server.server.play_sound", return_value=True),
+        patch("audio_notify_server.server.logger") as mock_logger,
+    ):
+        response = client.post(
+            "/notify",
+            json={"message": "Test log message", "speak": False, "sound": True},
+        )
+        assert response.status_code == HTTPStatus.OK
+
+        # Check that logger.info was called with message content
+        log_calls = [str(call) for call in mock_logger.info.call_args_list]
+        assert any("Test log message" in call for call in log_calls)
+
+
+def test_notify_get_logs_message(client: TestClient) -> None:
+    """Test GET /notify logs the message content."""
+    with (
+        patch("audio_notify_server.server.play_sound", return_value=True),
+        patch("audio_notify_server.server.logger") as mock_logger,
+    ):
+        response = client.get("/notify?message=Hello%20from%20GET&sound=true")
+        assert response.status_code == HTTPStatus.OK
+
+        # Check that logger.info was called with message content
+        log_calls = [str(call) for call in mock_logger.info.call_args_list]
+        assert any("Hello from GET" in call for call in log_calls)
+
+
+def test_notify_logs_client_ip(client: TestClient) -> None:
+    """Test /notify logs the client IP address."""
+    with (
+        patch("audio_notify_server.server.play_sound", return_value=True),
+        patch("audio_notify_server.server.logger") as mock_logger,
+    ):
+        response = client.post("/notify", json={})
+        assert response.status_code == HTTPStatus.OK
+
+        # Check that logger.info was called with client IP info
+        log_calls = [str(call) for call in mock_logger.info.call_args_list]
+        # TestClient uses 'testclient' as the host
+        assert any("testclient" in call for call in log_calls)
