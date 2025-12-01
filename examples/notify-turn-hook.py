@@ -165,8 +165,9 @@ def get_last_user_message(transcript_path: Path) -> str:
                     break
             if prev_assistant_text:
                 return f"(In response to: {prev_assistant_text}{ellipsis})\nUser said: {last_user_msg}"
-
-        return last_user_msg
+            return last_user_msg
+        else:
+            return last_user_msg
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
         if DEBUG:
             print(f"Debug: get_last_user_message error: {e}", file=sys.stderr)
