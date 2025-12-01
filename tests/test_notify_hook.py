@@ -3,6 +3,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -41,7 +42,6 @@ class TestNotifyHook(unittest.TestCase):
 
     def tearDown(self):
         """Clean up after each test."""
-        import shutil
         shutil.rmtree(self.test_dir, ignore_errors=True)
         # Clean up lockfile
         lockfile = Path("/tmp/notify-hook.lock")
@@ -192,7 +192,6 @@ class TestHookFunctions(unittest.TestCase):
 
     def tearDown(self):
         """Clean up."""
-        import shutil
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def _create_transcript(self, entries: list):
@@ -304,7 +303,6 @@ class TestHookFunctions(unittest.TestCase):
 
     def test_get_git_context_in_git_repo(self):
         """Test git context returns repo name and branch in a git repo."""
-        import re
         hook = self._import_hook_module()
 
         # Use this test's repo directory
