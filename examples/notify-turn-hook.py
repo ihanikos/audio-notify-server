@@ -133,21 +133,27 @@ def get_last_user_message(transcript_path: Path) -> str:
             last_user_ts = user_entries[-1]["timestamp"]
             # Find assistant message just before the last user message
             prev_assistant_text = ""
+            ellipsis = ""
             for e in reversed(entries):
                 if e.get("timestamp", "") >= last_user_ts:
                     continue
                 if e.get("type") == "assistant":
                     content = e.get("message", {}).get("content", [])
+                    full_text = ""
                     if isinstance(content, list):
                         for item in content:
                             if isinstance(item, dict) and item.get("type") == "text":
-                                prev_assistant_text = item.get("text", "")[:300]
+                                full_text = item.get("text", "")
                                 break
                     elif isinstance(content, str):
-                        prev_assistant_text = content[:300]
+                        full_text = content
+                    if full_text:
+                        truncated = len(full_text) > 300
+                        prev_assistant_text = full_text[:300]
+                        ellipsis = "..." if truncated else ""
                     break
             if prev_assistant_text:
-                return f"(In response to: {prev_assistant_text}...)\nUser said: {last_user_msg}"
+                return f"(In response to: {prev_assistant_text}{ellipsis})\nUser said: {last_user_msg}"
 
         return last_user_msg
     except Exception as e:

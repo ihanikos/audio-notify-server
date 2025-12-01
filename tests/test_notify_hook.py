@@ -274,6 +274,26 @@ class TestHookFunctions(unittest.TestCase):
         self.assertTrue(msg.startswith("(In response to: "))
         self.assertIn("Would you like me to proceed?", msg)
         self.assertIn("\nUser said: Yes", msg)
+        # Verify no ellipsis since assistant message is short (not truncated)
+        self.assertNotIn("...", msg)
+
+    def test_get_last_user_message_short_no_prior_assistant(self):
+        """Test that short user message as first message returns just the message."""
+        import importlib.util
+        hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
+        spec = importlib.util.spec_from_file_location("hook", hook_path)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+
+        # Short user message with no prior assistant message
+        self._create_transcript([
+            {"type": "user", "timestamp": "2025-01-01T10:00:00Z",
+             "message": {"content": "Yes"}},
+        ])
+
+        msg = hook.get_last_user_message(self.transcript)
+        # Should return just the user message without context
+        self.assertEqual(msg, "Yes")
 
     def test_get_assistant_messages(self):
         """Test extracting assistant messages after last user message."""
