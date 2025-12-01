@@ -271,8 +271,9 @@ class TestHookFunctions(unittest.TestCase):
         ])
 
         msg = hook.get_last_user_message(self.transcript)
-        self.assertIn("Yes", msg)
+        self.assertTrue(msg.startswith("(In response to: "))
         self.assertIn("Would you like me to proceed?", msg)
+        self.assertIn("\nUser said: Yes", msg)
 
     def test_get_assistant_messages(self):
         """Test extracting assistant messages after last user message."""

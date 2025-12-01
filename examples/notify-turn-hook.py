@@ -153,7 +153,7 @@ def get_last_user_message(transcript_path: Path) -> str:
     except Exception as e:
         if DEBUG:
             print(f"Debug: get_last_user_message error: {e}", file=sys.stderr)
-    return ""
+        return ""
 
 
 def get_assistant_messages(transcript_path: Path) -> str:
