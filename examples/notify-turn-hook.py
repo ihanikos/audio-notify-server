@@ -50,17 +50,27 @@ except ValueError:
     MIN_DURATION = 60
 DEBUG = os.environ.get("CLAUDE_NOTIFY_DEBUG", "").lower() in ("1", "true")
 
+# Message length thresholds
+SHORT_MESSAGE_THRESHOLD = 20  # Include assistant context for messages shorter than this
+USER_MESSAGE_LIMIT = 500  # Truncate user messages to this length
+ASSISTANT_CONTEXT_LIMIT = 300  # Truncate assistant context to this length
+ASSISTANT_MESSAGES_LIMIT = 2000  # Truncate combined assistant messages to this length
+# Prompt snippet limits for summarizer
+PROMPT_USER_SNIPPET_LIMIT = 200  # User message snippet in summary prompt
+PROMPT_ASSISTANT_SNIPPET_LIMIT = 1500  # Assistant message snippet in summary prompt
+
 
 def _acquire_lock() -> bool:
     """Try to acquire the lock atomically. Returns False if already held."""
     try:
         fd = os.open(LOCKFILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         os.close(fd)
-        return True
     except FileExistsError:
         return False
     except OSError:
         return False
+    else:
+        return True
 
 
 def _release_lock() -> None:
@@ -74,6 +84,24 @@ def _release_lock() -> None:
 def parse_timestamp(ts: str) -> datetime:
     """Parse ISO8601 timestamp."""
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def _extract_assistant_text(entry: dict) -> str:
+    """Extract concatenated text content from an assistant message entry."""
+    content = entry.get("message", {}).get("content", [])
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                text = item.get("text") or ""
+                if text:
+                    parts.append(text)
+            elif isinstance(item, str):
+                parts.append(item)
+        return "".join(parts)
+    if isinstance(content, str):
+        return content
+    return ""
 
 
 def get_duration_from_transcript(transcript_path: Path) -> int:
@@ -102,14 +130,18 @@ def get_duration_from_transcript(transcript_path: Path) -> int:
         asst_ts = parse_timestamp(last_asst["timestamp"])
 
         return int((asst_ts - user_ts).total_seconds())
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
         if DEBUG:
             print(f"Debug: get_duration_from_transcript error: {e}", file=sys.stderr)
         return 0
 
 
 def get_last_user_message(transcript_path: Path) -> str:
-    """Get the last user message from transcript."""
+    """Get the last user message from transcript.
+
+    If the user message is very short (e.g., "Yes", "ok"), also include
+    the previous assistant message for context.
+    """
     try:
         lines = transcript_path.read_text().strip().split("\n")
         entries = [json.loads(line) for line in lines if line.strip()]
@@ -119,12 +151,42 @@ def get_last_user_message(transcript_path: Path) -> str:
             if e.get("type") == "user"
             and isinstance(e.get("message", {}).get("content"), str)
         ]
-        if user_entries:
-            return user_entries[-1]["message"]["content"][:500]
-    except Exception as e:
+        if not user_entries:
+            return ""
+
+        last_user_msg = user_entries[-1]["message"]["content"].strip()[:USER_MESSAGE_LIMIT]
+
+        # If user message is very short, include previous assistant context
+        if len(last_user_msg) < SHORT_MESSAGE_THRESHOLD:
+            last_user_ts = parse_timestamp(user_entries[-1]["timestamp"])
+            # Find assistant message just before the last user message
+            prev_assistant_text = ""
+            ellipsis = ""
+            for e in reversed(entries):
+                entry_ts_str = e.get("timestamp", "")
+                if not entry_ts_str:
+                    continue
+                try:
+                    entry_ts = parse_timestamp(entry_ts_str)
+                except ValueError:
+                    continue
+                if entry_ts >= last_user_ts:
+                    continue
+                if e.get("type") == "assistant":
+                    full_text = _extract_assistant_text(e)
+                    if full_text:
+                        truncated = len(full_text) > ASSISTANT_CONTEXT_LIMIT
+                        prev_assistant_text = full_text[:ASSISTANT_CONTEXT_LIMIT]
+                        ellipsis = "..." if truncated else ""
+                        break  # Only break when we found non-empty text
+            if prev_assistant_text:
+                return f"(In response to: {prev_assistant_text}{ellipsis})\nUser said: {last_user_msg}"
+    except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
         if DEBUG:
             print(f"Debug: get_last_user_message error: {e}", file=sys.stderr)
-    return ""
+        return ""
+    else:
+        return last_user_msg
 
 
 def get_assistant_messages(transcript_path: Path) -> str:
@@ -141,24 +203,27 @@ def get_assistant_messages(transcript_path: Path) -> str:
         ]
         if not user_entries:
             return ""
-        last_user_ts = user_entries[-1]["timestamp"]
+        last_user_ts = parse_timestamp(user_entries[-1]["timestamp"])
 
         # Get all assistant messages after that
         texts = []
         for e in entries:
-            if e.get("type") == "assistant" and e.get("timestamp", "") > last_user_ts:
-                content = e.get("message", {}).get("content", [])
-                if isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict) and item.get("type") == "text":
-                            text = item.get("text", "")
-                            if text:
-                                texts.append(text)
-                elif isinstance(content, str):
-                    texts.append(content)
+            if e.get("type") != "assistant":
+                continue
+            entry_ts_str = e.get("timestamp", "")
+            if not entry_ts_str:
+                continue
+            try:
+                entry_ts = parse_timestamp(entry_ts_str)
+            except ValueError:
+                continue
+            if entry_ts > last_user_ts:
+                text = _extract_assistant_text(e)
+                if text:
+                    texts.append(text)
 
-        return "\n".join(texts)[:2000]
-    except Exception as e:
+        return "\n".join(texts)[:ASSISTANT_MESSAGES_LIMIT]
+    except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
         if DEBUG:
             print(f"Debug: get_assistant_messages error: {e}", file=sys.stderr)
         return ""
@@ -171,9 +236,9 @@ def get_summary(last_user_msg: str, assistant_msgs: str) -> str:
 
     prompt = f"""Output ONLY a single short sentence (max 15 words) summarizing what was done. No questions, no explanations, no preamble. Just the summary sentence.
 
-User asked: {last_user_msg[:200]}
+User asked: {last_user_msg[:PROMPT_USER_SNIPPET_LIMIT]}
 
-Assistant did: {assistant_msgs[:1500]}"""
+Assistant did: {assistant_msgs[:PROMPT_ASSISTANT_SNIPPET_LIMIT]}"""
 
     try:
         if not _acquire_lock():
