@@ -153,10 +153,10 @@ def get_last_user_message(transcript_path: Path) -> str:
         if not user_entries:
             return ""
 
-        last_user_msg = user_entries[-1]["message"]["content"][:USER_MESSAGE_LIMIT]
+        last_user_msg = user_entries[-1]["message"]["content"].strip()[:USER_MESSAGE_LIMIT]
 
         # If user message is very short, include previous assistant context
-        if len(last_user_msg.strip()) < SHORT_MESSAGE_THRESHOLD:
+        if len(last_user_msg) < SHORT_MESSAGE_THRESHOLD:
             last_user_ts = parse_timestamp(user_entries[-1]["timestamp"])
             # Find assistant message just before the last user message
             prev_assistant_text = ""
@@ -180,9 +180,7 @@ def get_last_user_message(transcript_path: Path) -> str:
                         break  # Only break when we found non-empty text
             if prev_assistant_text:
                 return f"(In response to: {prev_assistant_text}{ellipsis})\nUser said: {last_user_msg}"
-            return last_user_msg
-        else:
-            return last_user_msg
+        return last_user_msg
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
         if DEBUG:
             print(f"Debug: get_last_user_message error: {e}", file=sys.stderr)
