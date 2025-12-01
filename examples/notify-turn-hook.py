@@ -130,12 +130,19 @@ def get_last_user_message(transcript_path: Path) -> str:
 
         # If user message is very short, include previous assistant context
         if len(last_user_msg.strip()) < 20:
-            last_user_ts = user_entries[-1]["timestamp"]
+            last_user_ts = parse_timestamp(user_entries[-1]["timestamp"])
             # Find assistant message just before the last user message
             prev_assistant_text = ""
             ellipsis = ""
             for e in reversed(entries):
-                if e.get("timestamp", "") >= last_user_ts:
+                entry_ts_str = e.get("timestamp", "")
+                if not entry_ts_str:
+                    continue
+                try:
+                    entry_ts = parse_timestamp(entry_ts_str)
+                except ValueError:
+                    continue
+                if entry_ts >= last_user_ts:
                     continue
                 if e.get("type") == "assistant":
                     content = e.get("message", {}).get("content", [])
