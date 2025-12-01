@@ -315,7 +315,7 @@ class TestHookFunctions(unittest.TestCase):
         self.assertTrue(context.endswith(": "))
         # Verify format matches "repo, branch: " or "repo: "
         self.assertIsNotNone(
-            re.match(r'^.+, .+: $|^.+: $', context),
+            re.match(r'^[^,]+, [^,]+: $|^[^,]+: $', context),
             f"Context '{context}' doesn't match expected format",
         )
 
