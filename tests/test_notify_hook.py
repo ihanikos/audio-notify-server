@@ -3,11 +3,15 @@
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Optional
+
+# Shared path to the hook module
+HOOK_PATH = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
 
 
 class TestNotifyHook(unittest.TestCase):
@@ -16,8 +20,7 @@ class TestNotifyHook(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test fixtures."""
-        cls.script_dir = Path(__file__).parent
-        cls.hook_path = cls.script_dir.parent / "examples" / "notify-turn-hook.py"
+        cls.hook_path = HOOK_PATH
         if not cls.hook_path.exists():
             raise FileNotFoundError(f"Hook not found at {cls.hook_path}")
 
@@ -200,8 +203,7 @@ class TestHookFunctions(unittest.TestCase):
     def _import_hook_module(self):
         """Import and return the hook module."""
         import importlib.util
-        hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
-        spec = importlib.util.spec_from_file_location("hook", hook_path)
+        spec = importlib.util.spec_from_file_location("hook", HOOK_PATH)
         hook = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(hook)
         return hook
@@ -306,7 +308,13 @@ class TestHookFunctions(unittest.TestCase):
         hook = self._import_hook_module()
 
         # Use this test's repo directory
-        repo_dir = str(Path(__file__).parent.parent)
+        repo_path = Path(__file__).parent.parent
+        repo_dir = str(repo_path)
+
+        # Skip if git is unavailable or this isn't a git repo
+        if shutil.which("git") is None or not (repo_path / ".git").exists():
+            self.skipTest("Requires git installed and a .git repo at project root")
+
         context = hook.get_git_context(repo_dir)
 
         # Should contain repo name and branch with format "repo, branch: "
