@@ -65,11 +65,12 @@ def _acquire_lock() -> bool:
     try:
         fd = os.open(LOCKFILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         os.close(fd)
-        return True
     except FileExistsError:
         return False
     except OSError:
         return False
+    else:
+        return True
 
 
 def _release_lock() -> None:
@@ -180,11 +181,12 @@ def get_last_user_message(transcript_path: Path) -> str:
                         break  # Only break when we found non-empty text
             if prev_assistant_text:
                 return f"(In response to: {prev_assistant_text}{ellipsis})\nUser said: {last_user_msg}"
-        return last_user_msg
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
         if DEBUG:
             print(f"Debug: get_last_user_message error: {e}", file=sys.stderr)
         return ""
+    else:
+        return last_user_msg
 
 
 def get_assistant_messages(transcript_path: Path) -> str:
