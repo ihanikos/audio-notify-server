@@ -316,6 +316,46 @@ class TestHookFunctions(unittest.TestCase):
         self.assertIn("working on it", msgs)
         self.assertIn("done!", msgs)
 
+    def test_get_git_context_in_git_repo(self):
+        """Test git context returns repo name and branch in a git repo."""
+        import importlib.util
+        hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
+        spec = importlib.util.spec_from_file_location("hook", hook_path)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+
+        # Use this test's repo directory
+        repo_dir = str(Path(__file__).parent.parent)
+        context = hook.get_git_context(repo_dir)
+
+        # Should contain repo name and branch with format "repo, branch: "
+        self.assertIn("audio-notify-server", context)
+        self.assertTrue(context.endswith(": "))
+
+    def test_get_git_context_empty_cwd(self):
+        """Test git context returns empty string for empty cwd."""
+        import importlib.util
+        hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
+        spec = importlib.util.spec_from_file_location("hook", hook_path)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+
+        context = hook.get_git_context("")
+        self.assertEqual(context, "")
+
+    def test_get_git_context_non_git_dir(self):
+        """Test git context returns empty string for non-git directory."""
+        import importlib.util
+        hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
+        spec = importlib.util.spec_from_file_location("hook", hook_path)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+
+        # Use /tmp which is not a git repo
+        context = hook.get_git_context("/tmp")
+        # Should fall back to directory name without branch
+        self.assertIn("tmp", context)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
