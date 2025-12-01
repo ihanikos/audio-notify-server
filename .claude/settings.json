@@ -3,7 +3,8 @@
     "deny": [
       "Edit(.claude/**)",
       "Write(.claude/**)",
-      "Read(.claude/**)"
+      "Edit(~/.config/audio-notify-server/**)",
+      "Write(~/.config/audio-notify-server/**)"
     ]
   },
   "hooks": {
@@ -14,6 +15,11 @@
           {
             "type": "command",
             "command": ".claude/hooks/protect-claude-dir.sh",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/no-pkill.sh",
             "timeout": 2
           }
         ]

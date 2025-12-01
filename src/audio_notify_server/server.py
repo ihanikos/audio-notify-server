@@ -146,7 +146,8 @@ def create_app(sound_file: str | None = None) -> FastAPI:
         *,
         sound: Annotated[bool, Query(description="Whether to play notification sound")] = True,
         speak_msg: Annotated[
-            bool, Query(alias="speak", description="Whether to speak the message via TTS"),
+            bool,
+            Query(alias="speak", description="Whether to speak the message via TTS"),
         ] = False,
     ) -> NotifyResponse:
         max_length = get_max_message_length()

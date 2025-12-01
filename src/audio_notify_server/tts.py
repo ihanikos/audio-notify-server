@@ -2,22 +2,42 @@
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import os
 import select
 import shutil
+import tempfile
+from pathlib import Path
+from typing import TYPE_CHECKING
 
+import httpx
+from loguru import logger
+
+from audio_notify_server.config import get_elevenlabs_config
 from audio_notify_server.process import (
     CommandError,
     CommandTimeoutError,
     wait_for_process,
 )
 
+if TYPE_CHECKING:
+    from audio_notify_server.config import ElevenLabsConfig
+
 # Trusted TTS executables - hardcoded list for security
 TRUSTED_TTS_ENGINES = frozenset({"espeak", "espeak-ng", "spd-say", "festival"})
 
 # Maximum time to wait for pipe write (seconds)
 PIPE_WRITE_TIMEOUT = 5.0
+
+# ElevenLabs API endpoint
+ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/text-to-speech"
+
+# Timeout for ElevenLabs API requests (seconds)
+ELEVENLABS_TIMEOUT = 30.0
+
+# Timeout for audio playback and local TTS commands (seconds)
+AUDIO_PLAYBACK_TIMEOUT = 30.0
 
 
 def _write_to_pipe_nonblocking(fd: int, data: bytes, timeout: float) -> None:
@@ -117,7 +137,7 @@ def _safe_run_tts_command(
         pid = os.posix_spawn(
             full_path,
             safe_cmd,
-            env=os.environ,
+            os.environ,
             file_actions=file_actions,
         )
 
@@ -143,8 +163,120 @@ def _safe_run_tts_command(
     return exit_code
 
 
-def speak(message: str) -> bool:
-    """Speak a message using text-to-speech.
+def _speak_elevenlabs(message: str, config: ElevenLabsConfig) -> bool:
+    """Speak a message using ElevenLabs TTS API.
+
+    Args:
+        message: The message to speak.
+        config: ElevenLabs configuration.
+
+    Returns:
+        True if TTS was successful, False otherwise.
+
+    """
+    if not config.api_key:
+        return False
+
+    url = f"{ELEVENLABS_API_URL}/{config.voice_id}"
+    headers = {
+        "xi-api-key": config.api_key,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "text": message,
+        "model_id": config.model_id,
+    }
+
+    try:
+        with httpx.Client(timeout=ELEVENLABS_TIMEOUT) as client:
+            response = client.post(
+                url,
+                headers=headers,
+                json=payload,
+                params={"output_format": "mp3_44100_128"},
+            )
+            response.raise_for_status()
+
+            if not response.content:
+                logger.warning("ElevenLabs API returned empty audio content")
+                return False
+
+            # Save audio to temp file and play it
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                f.write(response.content)
+                temp_path = f.name
+
+            try:
+                return _play_audio_file(temp_path)
+            finally:
+                # Clean up temp file
+                with contextlib.suppress(OSError):
+                    Path(temp_path).unlink()
+
+    except httpx.HTTPStatusError as e:
+        logger.warning("ElevenLabs API error: {} {}", e.response.status_code, e.response.text[:200])
+        return False
+    except httpx.RequestError as e:
+        logger.warning("ElevenLabs request failed: {}", e)
+        return False
+
+
+def _play_audio_file(path: str) -> bool:
+    """Play an audio file using available system players.
+
+    Args:
+        path: Path to the audio file.
+
+    Returns:
+        True if playback was successful, False otherwise.
+
+    """
+    # Import here to avoid circular dependency
+    from audio_notify_server.sound import TRUSTED_AUDIO_PLAYERS, play_sound
+
+    # Try play_sound which handles multiple players
+    if play_sound(path):
+        return True
+
+    # Fallback: try mpv/ffplay directly for mp3
+    players = [
+        ["mpv", "--no-video", "--really-quiet", path],
+        ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", path],
+    ]
+
+    for player_cmd in players:
+        player = player_cmd[0]
+        full_path = shutil.which(player) if player in TRUSTED_AUDIO_PLAYERS else None
+        if full_path:
+            devnull_fd = os.open(os.devnull, os.O_RDWR)
+            try:
+                safe_cmd = [full_path, *player_cmd[1:]]
+                pid = os.posix_spawn(
+                    full_path,
+                    safe_cmd,
+                    os.environ,
+                    file_actions=[
+                        (os.POSIX_SPAWN_DUP2, devnull_fd, 0),
+                        (os.POSIX_SPAWN_DUP2, devnull_fd, 1),
+                        (os.POSIX_SPAWN_DUP2, devnull_fd, 2),
+                        (os.POSIX_SPAWN_CLOSE, devnull_fd),
+                    ],
+                )
+            finally:
+                os.close(devnull_fd)
+
+            try:
+                exit_code = wait_for_process(pid, timeout=AUDIO_PLAYBACK_TIMEOUT)
+                if exit_code == 0:
+                    return True
+            except (CommandError, CommandTimeoutError):
+                continue
+
+    return False
+
+
+def _speak_local(message: str) -> bool:
+    """Speak a message using local TTS engines.
 
     Args:
         message: The message to speak.
@@ -153,10 +285,6 @@ def speak(message: str) -> bool:
         True if TTS was successful, False otherwise.
 
     """
-    if not message:
-        return False
-
-    # Use system TTS commands directly (pyttsx3 has instability issues with espeak driver)
     tts_commands = [
         ["espeak", message],
         ["espeak-ng", message],
@@ -170,13 +298,13 @@ def speak(message: str) -> bool:
                 if cmd[0] == "festival":
                     _safe_run_tts_command(
                         cmd,
-                        timeout=30,
+                        timeout=AUDIO_PLAYBACK_TIMEOUT,
                         input_data=message.encode(),
                     )
                 else:
                     _safe_run_tts_command(
                         cmd,
-                        timeout=30,
+                        timeout=AUDIO_PLAYBACK_TIMEOUT,
                     )
             except (CommandError, CommandTimeoutError, FileNotFoundError, ValueError, OSError):
                 continue
@@ -184,3 +312,29 @@ def speak(message: str) -> bool:
                 return True
 
     return False
+
+
+def speak(message: str) -> bool:
+    """Speak a message using text-to-speech.
+
+    Tries ElevenLabs TTS first if configured, then falls back to local TTS engines.
+
+    Args:
+        message: The message to speak.
+
+    Returns:
+        True if TTS was successful, False otherwise.
+
+    """
+    if not message:
+        return False
+
+    # Try ElevenLabs first if configured
+    elevenlabs_config = get_elevenlabs_config()
+    if elevenlabs_config.enabled:
+        if _speak_elevenlabs(message, elevenlabs_config):
+            return True
+        logger.debug("ElevenLabs TTS failed, falling back to local TTS")
+
+    # Fall back to local TTS engines
+    return _speak_local(message)

@@ -10,12 +10,17 @@ import struct
 import sys
 from typing import TYPE_CHECKING
 
+import httpx
 from loguru import logger
+
+from .config import get_elevenlabs_config
+from .server import run_server
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-from .server import run_server
+# Timeout for ElevenLabs API requests (seconds)
+ELEVENLABS_API_TIMEOUT = 30.0
 
 
 def get_interface_ip(interface_name: str) -> str | None:
@@ -94,11 +99,99 @@ def find_interface_by_prefix(prefix: str) -> tuple[str, str] | None:
     return None
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the CLI application.
+def _handle_list_interfaces() -> None:
+    """List available network interfaces and exit."""
+    logger.info("Available interfaces:")
+    for name, ip in list_interfaces():
+        logger.info("  {}: {}", name, ip)
+    sys.exit(0)
+
+
+def _handle_list_voices() -> None:
+    """List available ElevenLabs voices and exit."""
+    config = get_elevenlabs_config()
+    if not config.enabled:
+        logger.error("ElevenLabs is disabled in configuration")
+        sys.exit(1)
+    if not config.api_key:
+        logger.error("ElevenLabs API key not configured")
+        logger.info(
+            "Set ELEVENLABS_API_KEY or add to ~/.config/audio-notify-server/config.json",
+        )
+        sys.exit(1)
+
+    try:
+        with httpx.Client(timeout=ELEVENLABS_API_TIMEOUT) as client:
+            response = client.get(
+                "https://api.elevenlabs.io/v1/voices",
+                headers={"xi-api-key": config.api_key},
+            )
+            response.raise_for_status()
+            try:
+                voices = response.json().get("voices", [])
+            except ValueError:
+                logger.error("Invalid response from ElevenLabs API")
+                sys.exit(1)
+            logger.info("Available ElevenLabs voices:")
+            for voice in voices:
+                labels = voice.get("labels", {})
+                accent = labels.get("accent", "")
+                gender = labels.get("gender", "")
+                desc = labels.get("description", "")
+                info = ", ".join(filter(None, [gender, accent, desc]))
+                name = voice.get("name", "Unknown")
+                voice_id = voice.get("voice_id", "N/A")
+                logger.info("  {} ({}): {}", name, voice_id, info)
+    except httpx.HTTPStatusError as e:
+        logger.error("ElevenLabs API error: {}", e.response.text)
+        sys.exit(1)
+    except httpx.RequestError as e:
+        logger.error("Request failed: {}", e)
+        sys.exit(1)
+    sys.exit(0)
+
+
+def _resolve_host(args: argparse.Namespace) -> str:
+    """Resolve the host address from interface arguments.
 
     Args:
-        argv: Command line arguments (default: sys.argv[1:]).
+        args: Parsed command line arguments.
+
+    Returns:
+        The IP address to bind to.
+
+    """
+    host = args.host
+
+    # Interface prefix takes precedence (for ZeroTier with dynamic names)
+    if args.interface_prefix:
+        result = find_interface_by_prefix(args.interface_prefix)
+        if result is None:
+            logger.error("No interface found with prefix '{}'", args.interface_prefix)
+            logger.info("Use --list-interfaces to see available interfaces")
+            sys.exit(1)
+        interface_name, interface_ip = result
+        host = interface_ip
+        logger.info("Binding to interface {} ({})", interface_name, host)
+    elif args.interface:
+        interface_ip = get_interface_ip(args.interface)
+        if interface_ip is None:
+            logger.error("Could not find interface '{}'", args.interface)
+            logger.info("Use --list-interfaces to see available interfaces")
+            sys.exit(1)
+        host = interface_ip
+        logger.info("Binding to interface {} ({})", args.interface, host)
+    else:
+        logger.debug("Using default host: {}", host)
+
+    return host
+
+
+def _create_parser() -> argparse.ArgumentParser:
+    """Create and configure the argument parser.
+
+    Returns:
+        Configured ArgumentParser instance.
 
     """
     parser = argparse.ArgumentParser(
@@ -180,35 +273,32 @@ Sending notifications (from remote server):
         action="store_true",
         help="List available network interfaces and exit",
     )
+    parser.add_argument(
+        "--list-voices",
+        action="store_true",
+        help="List available ElevenLabs voices and exit",
+    )
 
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Run the CLI application.
+
+    Args:
+        argv: Command line arguments (default: sys.argv[1:]).
+
+    """
+    parser = _create_parser()
     args = parser.parse_args(argv)
 
     if args.list_interfaces:
-        logger.info("Available interfaces:")
-        for name, ip in list_interfaces():
-            logger.info("  {}: {}", name, ip)
-        sys.exit(0)
+        _handle_list_interfaces()
 
-    host = args.host
+    if args.list_voices:
+        _handle_list_voices()
 
-    # Interface prefix takes precedence (for ZeroTier with dynamic names)
-    if args.interface_prefix:
-        result = find_interface_by_prefix(args.interface_prefix)
-        if result is None:
-            logger.error("No interface found with prefix '{}'", args.interface_prefix)
-            logger.info("Use --list-interfaces to see available interfaces")
-            sys.exit(1)
-        interface_name, interface_ip = result
-        host = interface_ip
-        logger.info("Binding to interface {} ({})", interface_name, host)
-    elif args.interface:
-        interface_ip = get_interface_ip(args.interface)
-        if interface_ip is None:
-            logger.error("Could not find interface '{}'", args.interface)
-            logger.info("Use --list-interfaces to see available interfaces")
-            sys.exit(1)
-        host = interface_ip
-        logger.info("Binding to interface {} ({})", args.interface, host)
+    host = _resolve_host(args)
 
     # Security warning for non-localhost binding
     if host not in {"127.0.0.1", "::1"}:
