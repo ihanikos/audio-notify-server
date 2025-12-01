@@ -55,6 +55,9 @@ SHORT_MESSAGE_THRESHOLD = 20  # Include assistant context for messages shorter t
 USER_MESSAGE_LIMIT = 500  # Truncate user messages to this length
 ASSISTANT_CONTEXT_LIMIT = 300  # Truncate assistant context to this length
 ASSISTANT_MESSAGES_LIMIT = 2000  # Truncate combined assistant messages to this length
+# Prompt snippet limits for summarizer
+PROMPT_USER_SNIPPET_LIMIT = 200  # User message snippet in summary prompt
+PROMPT_ASSISTANT_SNIPPET_LIMIT = 1500  # Assistant message snippet in summary prompt
 
 
 def _acquire_lock() -> bool:
@@ -83,13 +86,19 @@ def parse_timestamp(ts: str) -> datetime:
 
 
 def _extract_assistant_text(entry: dict) -> str:
-    """Extract text content from an assistant message entry."""
+    """Extract concatenated text content from an assistant message entry."""
     content = entry.get("message", {}).get("content", [])
     if isinstance(content, list):
+        parts = []
         for item in content:
             if isinstance(item, dict) and item.get("type") == "text":
-                return item.get("text", "") or ""
-    elif isinstance(content, str):
+                text = item.get("text") or ""
+                if text:
+                    parts.append(text)
+            elif isinstance(item, str):
+                parts.append(item)
+        return "".join(parts)
+    if isinstance(content, str):
         return content
     return ""
 
@@ -168,7 +177,7 @@ def get_last_user_message(transcript_path: Path) -> str:
                         truncated = len(full_text) > ASSISTANT_CONTEXT_LIMIT
                         prev_assistant_text = full_text[:ASSISTANT_CONTEXT_LIMIT]
                         ellipsis = "..." if truncated else ""
-                    break
+                        break  # Only break when we found non-empty text
             if prev_assistant_text:
                 return f"(In response to: {prev_assistant_text}{ellipsis})\nUser said: {last_user_msg}"
             return last_user_msg
@@ -227,9 +236,9 @@ def get_summary(last_user_msg: str, assistant_msgs: str) -> str:
 
     prompt = f"""Output ONLY a single short sentence (max 15 words) summarizing what was done. No questions, no explanations, no preamble. Just the summary sentence.
 
-User asked: {last_user_msg[:200]}
+User asked: {last_user_msg[:PROMPT_USER_SNIPPET_LIMIT]}
 
-Assistant did: {assistant_msgs[:1500]}"""
+Assistant did: {assistant_msgs[:PROMPT_ASSISTANT_SNIPPET_LIMIT]}"""
 
     try:
         if not _acquire_lock():
