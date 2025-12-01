@@ -29,6 +29,7 @@ tasks that take longer than MIN_DURATION seconds.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -259,6 +260,56 @@ Assistant did: {assistant_msgs[:PROMPT_ASSISTANT_SNIPPET_LIMIT]}"""
         _release_lock()
 
 
+def get_git_context(cwd: str) -> str:
+    """Get git repo name and branch for notification prefix.
+
+    Returns a string like "repo-name, branch:" or empty string if not a git repo.
+    """
+    if not cwd:
+        return ""
+
+    # Get full path to git executable for security (avoids S607)
+    git_path = shutil.which("git")
+    if not git_path:
+        return ""
+
+    try:
+        # Get repo name from remote origin or directory name
+        result = subprocess.run(
+            [git_path, "-C", cwd, "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            # Extract repo name from URL (handles both HTTPS and SSH)
+            url = result.stdout.strip()
+            repo_name = url.rstrip("/").split("/")[-1]
+            if repo_name.endswith(".git"):
+                repo_name = repo_name[:-4]
+        else:
+            # Fall back to directory name
+            repo_name = Path(cwd).name
+
+        # Get current branch name
+        result = subprocess.run(
+            [git_path, "-C", cwd, "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        branch = result.stdout.strip() if result.returncode == 0 else ""
+
+        if repo_name and branch:
+            return f"{repo_name}, {branch}: "
+        if repo_name:
+            return f"{repo_name}: "
+    except (OSError, subprocess.TimeoutExpired) as e:
+        if DEBUG:
+            print(f"Debug: get_git_context error: {e}", file=sys.stderr)
+    return ""
+
+
 def send_notification(message: str) -> None:
     """Send notification to audio-notify-server."""
     try:
@@ -314,6 +365,9 @@ def main():
     if duration < MIN_DURATION:
         return
 
+    # Get git context prefix (repo name and branch)
+    prefix = get_git_context(cwd)
+
     # Build message
     project_name = Path(cwd).name if cwd else "unknown"
     message = f"Your turn in {project_name}"
@@ -327,7 +381,8 @@ def main():
         if summary:
             message = summary
 
-    send_notification(message)
+    # Prepend prefix to message
+    send_notification(f"{prefix}{message}")
 
 
 if __name__ == "__main__":

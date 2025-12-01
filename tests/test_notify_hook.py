@@ -3,11 +3,16 @@
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Optional
+
+# Shared path to the hook module
+HOOK_PATH = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
 
 
 class TestNotifyHook(unittest.TestCase):
@@ -16,8 +21,7 @@ class TestNotifyHook(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test fixtures."""
-        cls.script_dir = Path(__file__).parent
-        cls.hook_path = cls.script_dir.parent / "examples" / "notify-turn-hook.py"
+        cls.hook_path = HOOK_PATH
         if not cls.hook_path.exists():
             raise FileNotFoundError(f"Hook not found at {cls.hook_path}")
 
@@ -38,7 +42,6 @@ class TestNotifyHook(unittest.TestCase):
 
     def tearDown(self):
         """Clean up after each test."""
-        import shutil
         shutil.rmtree(self.test_dir, ignore_errors=True)
         # Clean up lockfile
         lockfile = Path("/tmp/notify-hook.lock")
@@ -189,7 +192,6 @@ class TestHookFunctions(unittest.TestCase):
 
     def tearDown(self):
         """Clean up."""
-        import shutil
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def _create_transcript(self, entries: list):
@@ -197,14 +199,17 @@ class TestHookFunctions(unittest.TestCase):
         lines = [json.dumps(e) for e in entries]
         self.transcript.write_text("\n".join(lines) + "\n")
 
-    def test_duration_calculation(self):
-        """Test duration calculation from transcript."""
-        # Import the hook module
+    def _import_hook_module(self):
+        """Import and return the hook module."""
         import importlib.util
-        hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
-        spec = importlib.util.spec_from_file_location("hook", hook_path)
+        spec = importlib.util.spec_from_file_location("hook", HOOK_PATH)
         hook = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(hook)
+        return hook
+
+    def test_duration_calculation(self):
+        """Test duration calculation from transcript."""
+        hook = self._import_hook_module()
 
         self._create_transcript([
             {"type": "user", "timestamp": "2025-01-01T10:00:00Z",
@@ -218,11 +223,7 @@ class TestHookFunctions(unittest.TestCase):
 
     def test_duration_with_no_user_message(self):
         """Test duration when there's no user message."""
-        import importlib.util
-        hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
-        spec = importlib.util.spec_from_file_location("hook", hook_path)
-        hook = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(hook)
+        hook = self._import_hook_module()
 
         self._create_transcript([
             {"type": "assistant", "timestamp": "2025-01-01T10:02:00Z",
@@ -234,11 +235,7 @@ class TestHookFunctions(unittest.TestCase):
 
     def test_get_last_user_message(self):
         """Test extracting last user message."""
-        import importlib.util
-        hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
-        spec = importlib.util.spec_from_file_location("hook", hook_path)
-        hook = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(hook)
+        hook = self._import_hook_module()
 
         # Use a message longer than 20 chars to avoid context injection
         self._create_transcript([
@@ -255,11 +252,7 @@ class TestHookFunctions(unittest.TestCase):
 
     def test_get_last_user_message_short_with_context(self):
         """Test that short user messages include previous assistant context."""
-        import importlib.util
-        hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
-        spec = importlib.util.spec_from_file_location("hook", hook_path)
-        hook = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(hook)
+        hook = self._import_hook_module()
 
         self._create_transcript([
             {"type": "user", "timestamp": "2025-01-01T10:00:00Z",
@@ -279,11 +272,7 @@ class TestHookFunctions(unittest.TestCase):
 
     def test_get_last_user_message_short_no_prior_assistant(self):
         """Test that short user message as first message returns just the message."""
-        import importlib.util
-        hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
-        spec = importlib.util.spec_from_file_location("hook", hook_path)
-        hook = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(hook)
+        hook = self._import_hook_module()
 
         # Short user message with no prior assistant message
         self._create_transcript([
@@ -297,11 +286,7 @@ class TestHookFunctions(unittest.TestCase):
 
     def test_get_assistant_messages(self):
         """Test extracting assistant messages after last user message."""
-        import importlib.util
-        hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
-        spec = importlib.util.spec_from_file_location("hook", hook_path)
-        hook = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(hook)
+        hook = self._import_hook_module()
 
         self._create_transcript([
             {"type": "user", "timestamp": "2025-01-01T10:00:00Z",
@@ -315,6 +300,48 @@ class TestHookFunctions(unittest.TestCase):
         msgs = hook.get_assistant_messages(self.transcript)
         self.assertIn("working on it", msgs)
         self.assertIn("done!", msgs)
+
+    def test_get_git_context_in_git_repo(self):
+        """Test git context returns repo name and branch in a git repo."""
+        hook = self._import_hook_module()
+
+        # Use this test's repo directory
+        repo_path = Path(__file__).parent.parent
+        repo_dir = str(repo_path)
+
+        # Skip if git is unavailable or this isn't a git repo
+        if shutil.which("git") is None or not (repo_path / ".git").exists():
+            self.skipTest("Requires git installed and a .git repo at project root")
+
+        context = hook.get_git_context(repo_dir)
+
+        # Should contain repo name and branch with format "repo, branch: "
+        # Verify it's non-empty and has the expected format
+        self.assertNotEqual(context, "")
+        self.assertTrue(context.endswith(": "))
+        # Verify format matches "repo, branch: " or "repo: "
+        self.assertIsNotNone(
+            re.match(r'^[^,]+, [^,]+: $|^[^,]+: $', context),
+            f"Context '{context}' doesn't match expected format",
+        )
+
+    def test_get_git_context_empty_cwd(self):
+        """Test git context returns empty string for empty cwd."""
+        hook = self._import_hook_module()
+
+        context = hook.get_git_context("")
+        self.assertEqual(context, "")
+
+    def test_get_git_context_non_git_dir(self):
+        """Test git context falls back to directory name for non-git directory."""
+        hook = self._import_hook_module()
+
+        # Use test directory which is not a git repo
+        context = hook.get_git_context(self.test_dir)
+        # Should fall back to directory name
+        dir_name = Path(self.test_dir).name
+        self.assertIn(dir_name, context)
+        self.assertTrue(context.endswith(": "))
 
 
 if __name__ == "__main__":
