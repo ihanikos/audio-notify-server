@@ -76,6 +76,18 @@ def parse_timestamp(ts: str) -> datetime:
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
+def _extract_assistant_text(entry: dict) -> str:
+    """Extract text content from an assistant message entry."""
+    content = entry.get("message", {}).get("content", [])
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                return item.get("text", "") or ""
+    elif isinstance(content, str):
+        return content
+    return ""
+
+
 def get_duration_from_transcript(transcript_path: Path) -> int:
     """Calculate duration in seconds from transcript."""
     try:
@@ -102,7 +114,7 @@ def get_duration_from_transcript(transcript_path: Path) -> int:
         asst_ts = parse_timestamp(last_asst["timestamp"])
 
         return int((asst_ts - user_ts).total_seconds())
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
         if DEBUG:
             print(f"Debug: get_duration_from_transcript error: {e}", file=sys.stderr)
         return 0
@@ -145,15 +157,7 @@ def get_last_user_message(transcript_path: Path) -> str:
                 if entry_ts >= last_user_ts:
                     continue
                 if e.get("type") == "assistant":
-                    content = e.get("message", {}).get("content", [])
-                    full_text = ""
-                    if isinstance(content, list):
-                        for item in content:
-                            if isinstance(item, dict) and item.get("type") == "text":
-                                full_text = item.get("text", "")
-                                break
-                    elif isinstance(content, str):
-                        full_text = content
+                    full_text = _extract_assistant_text(e)
                     if full_text:
                         truncated = len(full_text) > 300
                         prev_assistant_text = full_text[:300]
@@ -163,7 +167,7 @@ def get_last_user_message(transcript_path: Path) -> str:
                 return f"(In response to: {prev_assistant_text}{ellipsis})\nUser said: {last_user_msg}"
 
         return last_user_msg
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
         if DEBUG:
             print(f"Debug: get_last_user_message error: {e}", file=sys.stderr)
         return ""
@@ -189,18 +193,12 @@ def get_assistant_messages(transcript_path: Path) -> str:
         texts = []
         for e in entries:
             if e.get("type") == "assistant" and e.get("timestamp", "") > last_user_ts:
-                content = e.get("message", {}).get("content", [])
-                if isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict) and item.get("type") == "text":
-                            text = item.get("text", "")
-                            if text:
-                                texts.append(text)
-                elif isinstance(content, str):
-                    texts.append(content)
+                text = _extract_assistant_text(e)
+                if text:
+                    texts.append(text)
 
         return "\n".join(texts)[:2000]
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, KeyError) as e:
         if DEBUG:
             print(f"Debug: get_assistant_messages error: {e}", file=sys.stderr)
         return ""
