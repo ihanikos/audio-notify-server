@@ -50,6 +50,12 @@ except ValueError:
     MIN_DURATION = 60
 DEBUG = os.environ.get("CLAUDE_NOTIFY_DEBUG", "").lower() in ("1", "true")
 
+# Message length thresholds
+SHORT_MESSAGE_THRESHOLD = 20  # Include assistant context for messages shorter than this
+USER_MESSAGE_LIMIT = 500  # Truncate user messages to this length
+ASSISTANT_CONTEXT_LIMIT = 300  # Truncate assistant context to this length
+ASSISTANT_MESSAGES_LIMIT = 2000  # Truncate combined assistant messages to this length
+
 
 def _acquire_lock() -> bool:
     """Try to acquire the lock atomically. Returns False if already held."""
@@ -138,10 +144,10 @@ def get_last_user_message(transcript_path: Path) -> str:
         if not user_entries:
             return ""
 
-        last_user_msg = user_entries[-1]["message"]["content"][:500]
+        last_user_msg = user_entries[-1]["message"]["content"][:USER_MESSAGE_LIMIT]
 
         # If user message is very short, include previous assistant context
-        if len(last_user_msg.strip()) < 20:
+        if len(last_user_msg.strip()) < SHORT_MESSAGE_THRESHOLD:
             last_user_ts = parse_timestamp(user_entries[-1]["timestamp"])
             # Find assistant message just before the last user message
             prev_assistant_text = ""
@@ -159,8 +165,8 @@ def get_last_user_message(transcript_path: Path) -> str:
                 if e.get("type") == "assistant":
                     full_text = _extract_assistant_text(e)
                     if full_text:
-                        truncated = len(full_text) > 300
-                        prev_assistant_text = full_text[:300]
+                        truncated = len(full_text) > ASSISTANT_CONTEXT_LIMIT
+                        prev_assistant_text = full_text[:ASSISTANT_CONTEXT_LIMIT]
                         ellipsis = "..." if truncated else ""
                     break
             if prev_assistant_text:
@@ -188,18 +194,27 @@ def get_assistant_messages(transcript_path: Path) -> str:
         ]
         if not user_entries:
             return ""
-        last_user_ts = user_entries[-1]["timestamp"]
+        last_user_ts = parse_timestamp(user_entries[-1]["timestamp"])
 
         # Get all assistant messages after that
         texts = []
         for e in entries:
-            if e.get("type") == "assistant" and e.get("timestamp", "") > last_user_ts:
+            if e.get("type") != "assistant":
+                continue
+            entry_ts_str = e.get("timestamp", "")
+            if not entry_ts_str:
+                continue
+            try:
+                entry_ts = parse_timestamp(entry_ts_str)
+            except ValueError:
+                continue
+            if entry_ts > last_user_ts:
                 text = _extract_assistant_text(e)
                 if text:
                     texts.append(text)
 
-        return "\n".join(texts)[:2000]
-    except (OSError, json.JSONDecodeError, KeyError) as e:
+        return "\n".join(texts)[:ASSISTANT_MESSAGES_LIMIT]
+    except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
         if DEBUG:
             print(f"Debug: get_assistant_messages error: {e}", file=sys.stderr)
         return ""
