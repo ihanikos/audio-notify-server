@@ -344,17 +344,19 @@ class TestHookFunctions(unittest.TestCase):
         self.assertEqual(context, "")
 
     def test_get_git_context_non_git_dir(self):
-        """Test git context returns empty string for non-git directory."""
+        """Test git context falls back to directory name for non-git directory."""
         import importlib.util
         hook_path = Path(__file__).parent.parent / "examples" / "notify-turn-hook.py"
         spec = importlib.util.spec_from_file_location("hook", hook_path)
         hook = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(hook)
 
-        # Use /tmp which is not a git repo
-        context = hook.get_git_context("/tmp")
-        # Should fall back to directory name without branch
-        self.assertIn("tmp", context)
+        # Use test directory which is not a git repo
+        context = hook.get_git_context(self.test_dir)
+        # Should fall back to directory name
+        dir_name = Path(self.test_dir).name
+        self.assertIn(dir_name, context)
+        self.assertTrue(context.endswith(": "))
 
 
 if __name__ == "__main__":
