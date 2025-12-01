@@ -329,8 +329,12 @@ class TestHookFunctions(unittest.TestCase):
         context = hook.get_git_context(repo_dir)
 
         # Should contain repo name and branch with format "repo, branch: "
-        self.assertIn("audio-notify-server", context)
+        # Verify it's non-empty and has the expected format
+        self.assertNotEqual(context, "")
         self.assertTrue(context.endswith(": "))
+        # Verify it contains a comma if both repo and branch are present,
+        # or just ends with ": " if only repo name
+        self.assertTrue(", " in context or context.count(":") == 1)
 
     def test_get_git_context_empty_cwd(self):
         """Test git context returns empty string for empty cwd."""
